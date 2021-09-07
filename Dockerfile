@@ -26,12 +26,12 @@ RUN unzip awscliv2.zip
 RUN ./aws/install
 
 
-COPY RedshiftEphemeral.py /src/RedshiftEphemeral.py
-COPY __init__.py /src/__init__.py
-COPY python_client_redshift_ephemeral.py /src/python_client_redshift_ephemeral.py
-COPY dw_config.ini /src/dw_config.ini
-COPY query_redshift_api.ini /src/query_redshift_api.ini
-COPY requirements.txt /src/requirements.txt
+COPY src/RedshiftEphemeral.py /src/RedshiftEphemeral.py
+COPY src/__init__.py /src/__init__.py
+COPY src/python_client_redshift_ephemeral.py /src/python_client_redshift_ephemeral.py
+COPY src/dw_config.ini /src/dw_config.ini
+COPY src/query_redshift_api.ini /src/query_redshift_api.ini
+COPY src/requirements.txt /src/requirements.txt
 
 ARG AWS_ACCESS_KEY_ID
 ARG AWS_SECRET_ACCESS_KEY
