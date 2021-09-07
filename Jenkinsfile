@@ -7,7 +7,7 @@
 
 pipeline {
     environment {
-    registry = "jeetesh9108/rs-pipeline"
+    registry = "jeetesh9108/rs-pipeline" /*your docker repository*/
     registryCredential = 'dockerhub_id'
     dockerImage = ''
     AWS_ACCESS_KEY_ID='AKIAWPVSKFO3WFO5FLUL'
@@ -30,7 +30,7 @@ pipeline {
 			stage('Build Docker Image')	{
 			steps{
 			script{https://github.com/aws-samples/devops-redshift.git
-			sh 'docker build -t jeetesh9108/rs-pipeline:2.0.0 .'
+			sh 'docker build -t jeetesh9108/rs-pipeline:2.0.0 .' /*your docker repository*/
 			dockerImage = docker.build registry + ":$BUILD_NUMBER"
 				  }
 			   }
