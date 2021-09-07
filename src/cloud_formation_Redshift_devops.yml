@@ -1,0 +1,315 @@
+AWSTemplateFormatVersion: 2010-09-09
+Conditions:
+  SingleNode: !Equals [ !Ref RedshiftNodeCount, 1 ]
+Parameters:
+  InstanceTypeParameter:
+    Type: String
+    Default: t3a.medium
+    Description: Enter instance size. Default is t3a.medium.
+  WorkstationIp:
+    Type: String
+    Description: The IP address of the workstation that can SSH into the instance.
+  AMI:
+    Type: String
+    Default: ami-0c2b8ca1dad447f8a
+    Description: Amazon Linux2
+  Key:
+    Type: "AWS::EC2::KeyPair::KeyName"
+    Description: The key used to access the instance.
+  DataBucketName:
+    Type: String
+    Description: S3 data bucket name
+  DatabaseName:
+    Type: String
+    Description: Database name
+  MasterUsername:
+    Type: String
+    Description: Master user name for Redshift
+    Default: admin
+  MasterUserPassword:
+    Type: String
+    Description: Master password for Redshift (used mixed case and numbers)
+  RedshiftNodeCount:
+    Type: Number
+    Description: Number of Redshift nodes
+    Default: 1
+    MinValue: 1
+    ConstraintDescription: Must be a number greater or equal to 1
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: Linux VPC
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+  SubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: us-east-1a
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.0.0/24
+      MapPublicIpOnLaunch: true
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+  InternetRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGateway
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+      RouteTableId: !Ref RouteTable
+  SubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref SubnetA
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: "Internet Group"
+      GroupDescription: "SSH and web traffic in, all traffic out."
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '10933'
+          ToPort: '10933'
+          CidrIp:  20.188.245.156/32
+        - IpProtocol: tcp
+          FromPort: '10933'
+          ToPort: '10933'
+          CidrIp:  52.147.25.42/32 
+        - IpProtocol: tcp
+          FromPort: '10933'
+          ToPort: '10933'
+          CidrIp:  52.147.31.180/32 
+        - IpProtocol: tcp
+          FromPort: '10933'
+          ToPort: '10933'
+          CidrIp:  20.188.244.132/32 
+        - IpProtocol: tcp
+          FromPort: '10933'
+          ToPort: '10933'
+          CidrIp:  52.147.25.94/32 
+        - IpProtocol: tcp
+          FromPort: '10933'
+          ToPort: '10933'
+          CidrIp:  52.147.25.173/32 
+        - IpProtocol: tcp
+          FromPort: '10933'
+          ToPort: '10933'
+          CidrIp:  20.188.245.171/32 
+        - IpProtocol: tcp
+          FromPort: '10933'
+          ToPort: '10933'
+          CidrIp:  20.188.245.7/32
+        - IpProtocol: tcp
+          FromPort: '10933'
+          ToPort: '10933'
+          CidrIp:  20.188.244.147/32
+        - IpProtocol: tcp
+          FromPort: '10933'
+          ToPort: '10933'
+          CidrIp:  20.188.244.240/32
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp:  !Sub ${WorkstationIp}/32
+        - IpProtocol: tcp
+          FromPort: '5439'
+          ToPort: '5439'
+          CidrIp:  !Sub ${WorkstationIp}/32
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref Linux
+  Linux:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      SubnetId: !Ref SubnetA
+      ImageId: !Ref AMI
+      InstanceType:
+        Ref: InstanceTypeParameter
+      KeyName: !Ref Key
+      SecurityGroupIds:
+        - Ref: InstanceSecurityGroup
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 250
+      Tags:
+        -
+          Key: Appplication
+          Value: LinuxServer
+        -
+          Key: Domain
+          Value: None
+        -
+          Key: Environment
+          Value: Dev
+        -
+          Key: LifeTime
+          Value: Transient
+        -
+          Key: Name
+          Value: LinuxServer
+        -
+          Key: OS
+          Value: Linux
+        -
+          Key: OwnerContact
+          Value: "jeesri@"
+        -
+          Key: Purpose
+          Value: Support Test Instance
+        -
+          Key: Source
+          Value: CloudFormation script - Redshift+ec2 instance
+      UserData:
+        Fn::Base64: 
+          |
+          #!/bin/bash -xe
+          sudo yum update -y
+          sudo amazon-linux-extras install -y docker
+          sudo yum install postgresql -y
+          sudo yum install git -y
+          sudo service docker start
+          sudo usermod -a -G docker ec2-user
+          sudo chmod 777 /var/run/docker.sock
+          docker run -d -p 8080:8080 --name myjenkins -v /var/run/docker.sock:/var/run/docker.sock -v jenkins_home:/var/jenkins_home -v jenkins_downloads:/var/jenkins_home/downloads  -v $(which docker):/usr/bin/docker jenkins/jenkins:lts
+          systemctl start sshd
+          mkdir output_data
+  RedshiftCluster:
+    Type: AWS::Redshift::Cluster
+    Properties:
+      ClusterSubnetGroupName: !Ref RedshiftClusterSubnetGroup
+      ClusterType: !If [ SingleNode, single-node, multi-node ]  
+      NumberOfNodes: !If [ SingleNode, !Ref 'AWS::NoValue', !Ref RedshiftNodeCount ] #'
+      DBName: !Sub ${DatabaseName}
+      IamRoles:
+        - !GetAtt RawDataBucketAccessRole.Arn
+      MasterUserPassword: !Ref MasterUserPassword
+      MasterUsername: !Ref MasterUsername
+      PubliclyAccessible: true
+      NodeType: dc2.large
+      Port: 5439
+      VpcSecurityGroupIds:
+        - !Sub ${RedshiftSecurityGroup}
+      PreferredMaintenanceWindow: Sun:09:15-Sun:09:45
+  DataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${DataBucketName}
+  RawDataBucketAccessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - redshift.amazonaws.com
+            Action:
+              - sts:AssumeRole
+  RawDataBucketRolePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: RawDataBucketRolePolicy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Action: s3:ListAllMyBuckets
+            Resource: arn:aws:s3:::*
+          -
+            Effect: Allow
+            Action:
+              - 's3:Get*'
+              - 's3:List*'
+            Resource: '*'
+          -
+            Effect: Allow
+            Action: cloudwatch:*
+            Resource: "*"
+      Roles:
+        - !Ref RawDataBucketAccessRole  
+  RedshiftClusterSubnetGroup:
+    Type: AWS::Redshift::ClusterSubnetGroup
+    Properties:
+      Description: Cluster subnet group
+      SubnetIds:
+        - !Ref SubnetA
+  RedshiftSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable JDBC port
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        -
+          CidrIp: !Sub ${WorkstationIp}/32
+          FromPort: 5439
+          ToPort: 5439
+          IpProtocol: tcp
+          Description: IP address for your dev machine
+        -
+          SourceSecurityGroupId: !Ref AccessToRedshiftSecurityGroup
+          FromPort: 5439
+          ToPort: 5439
+          IpProtocol: tcp
+          Description: Access to redshift 
+        -  
+          SourceSecurityGroupId: !Ref InstanceSecurityGroup
+          FromPort: -1
+          ToPort: -1
+          IpProtocol: -1
+          Description: Access to redshift 
+  AccessToRedshiftSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Access to Redshift access
+      VpcId: !Ref VPC
+  InternalSecurityGroupIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      IpProtocol: tcp
+      FromPort: 0
+      ToPort: 65535
+      SourceSecurityGroupId: !Ref RedshiftSecurityGroup
+      GroupId: !Ref RedshiftSecurityGroup
+Outputs:
+  RedshiftClusterEndpointAddress:
+    Description: Redshift Cluster Endpoint Address
+    Value: !GetAtt RedshiftCluster.Endpoint.Address
+  RedshiftClusterEndpoint:
+    Description: Redshift Cluster Endpoint
+    Value:
+      Fn::Join:
+        - ""
+        - - 'jdbc:redshift://'
+          - !GetAtt RedshiftCluster.Endpoint.Address
+          - ':5439/'
+          - !Sub ${DatabaseName}
+
+
+
+      

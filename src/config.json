@@ -1,0 +1,275 @@
+{
+	"Customer": "",
+	"Endpoint": "",
+	"Sections": {
+		"NodeDetails": {
+			"SQL": "SELECT CASE capacity \n         WHEN 760956 THEN 'dc2.8xlarge' \n         WHEN 190633 THEN 'dc2.large' \n         WHEN 952455 THEN 'ds2.xlarge' \n         WHEN 945026 THEN 'ds2.8xlarge' \n         WHEN 3339176 and diskcnt = 1 THEN 'ra3.4xlarge' \n         WHEN 3339176 and diskcnt != 1 THEN 'ra3.16xlarge' \n       END AS TYPE, OWNER node, \n       SUM(ROUND(CAST(used - tossed AS NUMERIC) / 1024,1)) AS used_gb,  \n       SUM(CASE capacity  \n       WHEN 760956 THEN 640  \n       WHEN 190633 THEN 160  \n       WHEN 952455 THEN 666  \n       WHEN 945026 THEN 666  \n       WHEN 3339176 THEN 3000 \n       ELSE capacity END) AS capacity_gb,  \n       ROUND((used_gb / capacity_gb)*100,1) pct_used \nFROM (select *, count(1) over (partition by host) diskcnt from stv_partitions WHERE OWNER = host) a \nGROUP BY 1, 2 \nORDER BY 1, 2;",
+			"Signals": [
+				{
+					"Signal": "exceeds the recommended storage threshold of 80%",
+					"Criteria": "pct_used > 80 ",
+					"PopulationName": "nodes",
+					"Recommendation": "There are a few strategies for increasing storage capacity: \n* Add more nodes using an elastic or classic resize \n* Migrate to the RA3 node type \n* Review column encoding; leverage AZ64 and ZSTD where possible * Ensure small tables (<5000000 rows) use a DISTSTYLE of ALL",
+					"PopulationCriteria": ""
+				},
+				{
+					"Signal": "has under-utilized storage",
+					"Criteria": "pct_used < 40 and not type like 'ra3%' ",
+					"PopulationName": "nodes",
+					"Recommendation": "* Consider removing nodes in your cluster using a resize.  \n* With a small cluster, leverage the concurrency scaling feature to handle spikey compute needs."
+				},
+				{
+					"Signal": "has 10% data skew",
+					"Criteria": "(pct_used - (select min(pct_used) from NodeDetails))/pct_used > .05",
+					"PopulationName": "nodes",
+					"Recommendation": "* If the first node is skewed, this may be due to using a distribution key containing nulls.  Change the distribution key for tables where a nullable field has been choosen.\n* For any remaining skew, reference the TableInfo and review the distribution style for skewed tables. "
+				},
+				{
+					"Signal": "are using a legacy node type",
+					"Criteria": "type like 'dc1%' or type like 'ds2%'",
+					"PopulationName": "nodes",
+					"Recommendation": "Customer have seen better performance on RA3 with a 2:1 conversion ratio from ds2.8xl to ra3.16XL.\n* Consider migrating to the DC2 or RA3 node type to take advantage of newer hardware and better performance. "
+				}
+			]
+		},
+		"Alerts": {
+			"SQL": "SELECT trim(s.perm_table_name) AS TABLENAME \n  ,coalesce(sum(abs(\n      datediff(seconds, coalesce(b.starttime, d.starttime, s.starttime), \n         CASE WHEN coalesce(b.endtime, d.endtime, s.endtime) > coalesce(b.starttime, d.starttime, s.starttime) \n              THEN coalesce(b.endtime, d.endtime, s.endtime) \n              ELSE coalesce(b.starttime, d.starttime, s.starttime) END)) / 60)::NUMERIC(24, 0), 0) AS minutes \n  ,coalesce(sum(coalesce(b.rows, d.rows, s.rows)),0) AS rowcount \n  ,trim(split_part(l.event, ':', 1)) AS event \n  ,substring(trim(l.solution), 1, 60) AS solution \n  ,max(l.query) AS sample_query \n  ,count(DISTINCT l.query) querycount\nFROM stl_alert_event_log AS l \nLEFT JOIN stl_scan AS s ON s.query = l.query AND s.slice = l.slice AND s.segment = l.segment \nLEFT JOIN stl_dist AS d ON d.query = l.query AND d.slice = l.slice AND d.segment = l.segment \nLEFT JOIN stl_bcast AS b ON b.query = l.query AND b.slice = l.slice AND b.segment = l.segment \nWHERE l.userid > 1 AND l.event_time >= dateadd(day, - 7, CURRENT_DATE) \nGROUP BY 1 ,4 ,5 \nORDER BY 2 DESC ,6 DESC LIMIT 15;\n",
+			"Signals": [
+				{
+					"Signal": "tables w/ high # of distribution alerts",
+					"Criteria": "querycount > 5 and solution like '%distribution%'",
+					"PopulationCriteria": "tablename != '' and minutes > 5 and querycount > 10",
+					"Recommendation": "Review the tables identified \n* Consider a different distribution key or DISTSTYLE of ALL.",
+					"Population": "tablename != ''"
+				},
+				{
+					"Signal": "tables w/ high # of sort key alerts",
+					"Criteria": "querycount > 5 and solution like '%sort key%' ",
+					"PopulationCriteria": "tablename != '' and minutes > 5 and querycount > 10",
+					"Recommendation": "Review the tables identified \n* Consider adding a sort key based on the predicates used most often."
+				},
+				{
+					"Signal": "alerts regarding missing statistics",
+					"Criteria": "querycount > 5 and solution like '%ANALYZE%'",
+					"PopulationCriteria": "querycount > 10",
+					"Recommendation": "Auto-analyze may not run in clusters with heavy utilization.  \n* Consider adding analyze table statements within your workload where applicable.",
+					"Population": ""
+				},
+				{
+					"Signal": "alerts regarding nested loops",
+					"Criteria": "querycount > 5 and solution like '%Cartesian%'",
+					"PopulationCriteria": "querycount > 10",
+					"Recommendation": "Queries using a nested loop join indicated a Cartesian product. Review the sample queries:\n* Add predicates to resolve the Cartesian product."
+				}
+			]
+		},
+		"UnusedTables": {
+			"SQL": "SELECT database db ,schema namespace ,\"table\" tablename ,size ,sortkey1 ,NVL(s.num_qs, 0) num_queries\nFROM svv_table_info t\nLEFT JOIN (\n   SELECT tbl ,perm_table_name ,COUNT(DISTINCT query) num_qs\n   FROM stl_scan s\n   WHERE s.userid > 1 AND s.perm_table_name NOT IN ('Internal Worktable','S3') GROUP BY 1,2 ) s\n ON s.tbl = t.table_id\nWHERE NVL(s.num_qs, 0) = 0\nORDER BY size DESC LIMIT 25;",
+			"Signals": [
+				{
+					"Signal": "tables greater than 100GB can be removed",
+					"Criteria": "size > 100000",
+					"PopulationCriteria": "",
+					"Recommendation": "* Remove large unused table to increase storage capacity."
+				}
+			]
+		},
+		"UsagePattern": {
+			"SQL": "WITH profile AS (\n  SELECT database \n    ,CASE WHEN \"userid\" = 1 THEN 'SYSTEM'\n      WHEN REGEXP_INSTR(\"querytxt\",'(padb_|pg_internal)' ) THEN 'SYSTEM'\n      WHEN REGEXP_INSTR(\"querytxt\",'[uU][nN][dD][oO][iI][nN][gG] ') THEN 'ROLLBACK'\n      WHEN REGEXP_INSTR(\"querytxt\",'[cC][uU][rR][sS][oO][rR] ' ) THEN 'CURSOR'\n      WHEN REGEXP_INSTR(\"querytxt\",'[fF][eE][tT][cC][hH] ' ) THEN 'CURSOR'\n      WHEN REGEXP_INSTR(\"querytxt\",'[dD][eE][lL][eE][tT][eE] ' ) THEN 'DELETE'\n      WHEN REGEXP_INSTR(\"querytxt\",'[cC][oO][pP][yY] ' ) THEN 'COPY'\n      WHEN REGEXP_INSTR(\"querytxt\",'[uU][pP][dD][aA][tT][eE] ' ) THEN 'UPDATE'\n      WHEN REGEXP_INSTR(\"querytxt\",'[iI][nN][sS][eE][rR][tT] ' ) THEN 'INSERT'\n      WHEN REGEXP_INSTR(\"querytxt\",'[vV][aA][cC][uU][uU][mM][ :]' ) THEN 'VACUUM'\n      WHEN REGEXP_INSTR(\"querytxt\",'[sS][eE][lL][eE][cC][tT] ' ) THEN 'SELECT' ELSE 'OTHER' END query_type\n    ,DATEPART(hour, starttime) query_hour ,ROUND(SUM(DATEDIFF(milliseconds, starttime, endtime))::NUMERIC/1000,1) query_duration ,COUNT(*) query_total\n  FROM stl_query WHERE endtime >= DATEADD(day, -7, CURRENT_DATE)\n  GROUP BY 1,2,3 )\nSELECT database db, query_hour ,MAX(CASE WHEN query_type ='SELECT' THEN query_total ELSE NULL END) AS \"select_count\"\n  ,MAX(CASE WHEN query_type ='SELECT' THEN query_duration ELSE NULL END) AS \"select_duration\"\n  ,MAX(CASE WHEN query_type ='CURSOR' THEN query_total ELSE NULL END) AS \"cursor_count\"\n  ,MAX(CASE WHEN query_type ='CURSOR' THEN query_duration ELSE NULL END) AS \"cursor_duration\"\n  ,MAX(CASE WHEN query_type ='COPY' THEN query_total ELSE NULL END) AS \"copy_count\"\n  ,MAX(CASE WHEN query_type ='COPY' THEN query_duration ELSE NULL END) AS \"copy_duration\"\n  ,MAX(CASE WHEN query_type ='INSERT' THEN query_total ELSE NULL END) AS \"insert_count\"\n  ,MAX(CASE WHEN query_type ='INSERT' THEN query_duration ELSE NULL END) AS \"insert_duration\"\n  ,MAX(CASE WHEN query_type ='UPDATE' THEN query_total ELSE NULL END) AS \"update_count\"\n  ,MAX(CASE WHEN query_type ='UPDATE' THEN query_duration ELSE NULL END) AS \"update_duration\"\n  ,MAX(CASE WHEN query_type ='DELETE' THEN query_total ELSE NULL END) AS \"delete_count\"\n  ,MAX(CASE WHEN query_type ='DELETE' THEN query_duration ELSE NULL END) AS \"delete_duration\"\n  ,MAX(CASE WHEN query_type ='VACUUM' THEN query_total ELSE NULL END) AS \"vacuum_count\"\n  ,MAX(CASE WHEN query_type ='VACUUM' THEN query_duration ELSE NULL END) AS \"vacuum_duration\"\nFROM profile\nGROUP BY 1,2\nORDER BY 1,2 ;\n",
+			"Signals": []
+		},
+		"Top50Queries": {
+			"SQL": "SELECT TRIM(\"database\") AS DB, COUNT(query) AS n_qry, MAX(SUBSTRING(replace(qrytext, chr(34), chr(92)+chr(34)), 1, 120)) AS qrytext, MIN(run_minutes) AS min_minutes, \nMAX(run_minutes) AS max_minutes, AVG(run_minutes) AS avg_minutes, SUM(run_minutes) AS total_minutes, MAX(query) AS max_query_id, \nMAX(starttime)::date AS last_run, aborted, MAX(mylabel) qry_label, \nTRIM(DECODE(event & 1, 1, 'Sortkey ', '') || \n     DECODE(event & 2, 2, 'Deletes ', '') || \n     DECODE(event & 4, 4, 'NL ', '') || \n     DECODE(event & 8, 8, 'Dist ', '') || \n     DECODE(event & 16, 16, 'Broacast ', '') || \n     DECODE(event & 32, 32, 'Stats ', '')) AS Alert \nFROM ( \n  SELECT userid, label, stl_query.query,TRIM(DATABASE) AS DATABASE, NVL(qrytext_cur.text, TRIM(querytxt)) AS qrytext, \n    MD5(NVL(qrytext_cur.text, TRIM(querytxt))) AS qry_md5, starttime, endtime, \n    DATEDIFF(seconds, starttime, endtime)::NUMERIC(12,2) AS run_minutes, aborted, event, stl_query.label AS mylabel \n   FROM stl_query \n   LEFT OUTER JOIN ( \n    SELECT query, SUM(DECODE(TRIM(SPLIT_PART(event, ':', 1) ), \n      'Very selective query filter', 1, \n      'Scanned a large number of deleted rows' , 2, \n      'Nested Loop Join in the query plan' , 4, \n      'Distributed a large number of rows across the network', 8, \n      'Broadcasted a large number of rows across the network', 16, \n      'Missing query planner statistics', 32, 0)) AS event \n     FROM stl_alert_event_log \n     WHERE event_time >= DATEADD(day, -7, CURRENT_DATE) GROUP BY query) AS alrt ON alrt.query = stl_query.query \n    LEFT OUTER JOIN ( \n      SELECT ut.xid, TRIM(SUBSTRING (text FROM STRPOS(UPPER( text), 'SELECT')) ) AS TEXT \n      FROM stl_utilitytext ut \n      WHERE sequence = 0 AND UPPER(text) LIKE 'DECLARE%' GROUP BY text, ut.xid) qrytext_cur ON ( stl_query.xid = qrytext_cur.xid ) \n    WHERE userid <> 1 AND starttime >= DATEADD(day, -2, CURRENT_DATE)) \n    GROUP BY DATABASE, userid, label, qry_md5, aborted, event ORDER BY total_minutes DESC LIMIT 50;",
+			"Signals": [
+				{
+					"Signal": "long running queries with missing Table Statistics",
+					"Criteria": "alert like '%Stats%' and qrytext not like '%fetch_sample%'",
+					"PopulationCriteria": "",
+					"Recommendation": "In some cases, Auto Analyze does not have enough time to run prior to your query execution.  \n* Schedule an analyze step in your load process."
+				},
+				{
+					"Signal": "long running queries using Nested Loop Joins",
+					"Criteria": "alert like '%NL%'",
+					"PopulationCriteria": "",
+					"Recommendation": "Nested loop joins which result in a cartesian product can be a costly operations.\n* Remove nested loops when possible.  \n* Consider Query Monitoring Rules log/abort queries with NL joins."
+				},
+				{
+					"Criteria": "alert like '%Dist%' or alert like '%Broacast%' and qrytext not like '%fetch_sample%'",
+					"Signal": "long running queries with Dist or Broacast alerts",
+					"Recommendation": "Review the queries identified:\n* Consider a different distribution key\n* Choose a DISTSTYLE of ALL where appropriate.\n* Ensuring statistics are up to date"
+				},
+				{
+					"Recommendation": "Review the queries identified \n* Consider adding a sort key based on the predicates used most often.",
+					"Criteria": "alert like '%Sort%'",
+					"Signal": "long running queries with Sort alerts"
+				}
+			]
+		},
+		"WLMConfig": {
+			"SQL": "SELECT wlm.service_class queue, TRIM(wlm.name) queue_name, wlm.num_query_tasks query_concurrency, wlm.query_working_mem per_query_memory_mb, \n  ROUND(((wlm.num_query_tasks*wlm.query_working_mem)::NUMERIC/mem.total_mem::NUMERIC)*100,0)::INT cluster_memory_pct,\n  wlm.max_execution_time, wlm.user_group_wild_card, wlm.query_group_wild_card, LISTAGG(TRIM(cnd.condition), ', ') condition\nFROM stv_wlm_service_class_config wlm\nJOIN stv_wlm_classification_config cnd ON wlm.service_class = cnd.action_service_class\nCROSS JOIN (\n  SELECT SUM(num_query_tasks*query_working_mem) total_mem\n  FROM pg_catalog.stv_wlm_service_class_config\n  WHERE service_class > 5) mem\nWHERE wlm.service_class > 5\nGROUP BY 1,2,3,4,5,6,7,8\nORDER BY 1;",
+			"Signals": [
+				{
+					"Signal": "queues do not have total memory = 100",
+					"Criteria": "(select sum(cluster_memory_pct) from WLMConfig) < 100",
+					"PopulationCriteria": "",
+					"Recommendation": "Total memory allocation should equal 100%.  Allocating less than 100% may result in unpredictable query performance.\n* Re-allocate your memory distribution to add up to 100%"
+				},
+				{
+					"Signal": "queues have total concurrency > 20",
+					"Criteria": "(select sum(query_concurrency) from WLMConfig) > 20",
+					"PopulationCriteria": "",
+					"Recommendation": "High slot counts can result in too little memory being allocated to each query and results spilling to disk.\n* Re-allocate your concurrency to use fewer slots."
+				},
+				{
+					"PopulationCriteria": "queue >= 100",
+					"Criteria": "(select count(1) from WLMConfig where queue >= 100) = 1",
+					"Signal": "user queue",
+					"Recommendation": "* Consider adding more than one user queue to ensure workloads are correctly prioritized."
+				}
+			]
+		},
+		"QMRules": {
+			"SQL": "SELECT qmr.service_class queue ,TRIM(wlm.name) queue_name, TRIM(rule_name) rule_name,\n  TRIM(action) AS action ,TRIM(metric_name)||' '||TRIM(metric_operator)||' '||metric_value AS rule\nFROM stv_wlm_qmr_config qmr\nJOIN stv_wlm_service_class_config wlm on wlm.service_class = qmr.service_class\nWHERE qmr.service_class > 5\nORDER BY qmr.service_class,TRIM(rule_name);",
+			"Signals": []
+		},
+		"CopyPerformance": {
+			"SQL": "SELECT a.endtime::date,a.tbl,trim(c.nspname) as namespace, trim(b.relname) as tablename, sum(a.rows_inserted) as rows_inserted \n  , sum(d.distinct_files) as files_scanned, sum(d.MB_scanned) as MB_scanned \n  , (sum(d.distinct_files)::numeric(19,3)/count(distinct a.query)::numeric(19,3))::numeric(19,3) as avg_files_per_copy \n  , (sum(d.MB_scanned)/sum(d.distinct_files)::numeric(19,3))::numeric(19,3) as avg_file_size_mb, count(distinct a.query) no_of_copy, max(a.query) as sample_query \n  , (sum(d.MB_scanned)*1024*1000000/SUM(d.load_micro)) as scan_rate_kbps, (sum(a.rows_inserted)*1000000/SUM(a.insert_micro)) as insert_rate_rows_ps \nfrom \n  (select query, tbl, sum(rows) as rows_inserted, max(endtime) as endtime, datediff('microsecond',min(starttime),max(endtime)) as insert_micro \n  from stl_insert \n  group by query, tbl) a \n  , pg_class b \n  , pg_namespace c \n  , (select b.query, count(distinct b.bucket||b.key) as distinct_files, sum(b.transfer_size)/1024/1024 as MB_scanned, sum(b.transfer_time) as load_micro \n  from stl_s3client b \n  where b.http_method = 'GET' \n  group by b.query) d \nwhere a.tbl = b.oid and b.relnamespace = c.oid and d.query = a.query \ngroup by 1,2,3,4 \norder by 1 desc, 5 desc, 3,4 ;",
+			"Signals": [
+				{
+					"Signal": "files per copy are less than slice count",
+					"Criteria": "avg_files_per_copy < 64 ",
+					"PopulationCriteria": "no_of_copy > 24",
+					"Recommendation": "Cluster has 16*16 = 256 slices:\n* Split incoming data or batch loads if possible to match the slice count for optimal load performance.",
+					"Population": "no_of_copy > 20"
+				},
+				{
+					"Signal": "files with a small size",
+					"Criteria": "avg_file_size_mb < 10",
+					"PopulationCriteria": "no_of_copy > 24",
+					"Recommendation": "* Combine small files by batching loads for optimal load performance.",
+					"Population": "no_of_copy > 20"
+				}
+			]
+		},
+		"EncodedSortKeys": {
+			"SQL": "SELECT n.nspname AS namespace, c.relname AS tablename, a.attname AS columnname, \n  format_type(a.atttypid,a.atttypmod) AS TYPE, format_encoding((a.attencodingtype)::INTEGER) AS encoding,\n  a.attsortkeyord AS sortkey \nFROM pg_namespace n\nJOIN pg_class c on n.oid = c.relnamespace\nJOIN pg_attribute a on c.oid = a.attrelid\nWHERE a.attnum > 0 AND NOT a.attisdropped AND a.attsortkeyord > 0 AND format_encoding(a.attencodingtype::INTEGER) <> 'none'\nORDER BY n.nspname, c.relname, a.attnum;",
+			"Signals": [
+				{
+					"Signal": "tables with encoded sort keys",
+					"Criteria": "sortkey = 1",
+					"PopulationCriteria": "",
+					"Recommendation": "It is a best practice to not encode the first column of a sort key for optimal query performance.  \n* Remove the encoding on the first column of a sort key. "
+				}
+			]
+		},
+		"WLMandCommit": {
+			"SQL": "SELECT IQ.*,\n       (IQ.wlm_queue_time::FLOAT/ IQ.wlm_start_commit_time)*100 AS pct_wlm_queue_time,\n       (IQ.exec_only_time::FLOAT/ IQ.wlm_start_commit_time)*100 AS pct_exec_only_time,\n       (IQ.commit_queue_time::FLOAT/ IQ.wlm_start_commit_time)*100 pct_commit_queue_time,\n       (IQ.commit_time::FLOAT/ IQ.wlm_start_commit_time)*100 pct_commit_time\nFROM (SELECT TRUNC(b.starttime) AS DAY,\n             d.service_class,\n             c.node,\n             COUNT(DISTINCT c.xid) AS count_commit_xid,\n             SUM(datediff ('microsec',d.service_class_start_time,c.endtime)) AS wlm_start_commit_time,\n             SUM(datediff ('microsec',d.queue_start_time,d.queue_end_time)) AS wlm_queue_time,\n             SUM(datediff ('microsec',b.starttime,b.endtime)) AS exec_only_time,\n             SUM(datediff ('microsec',c.startwork,c.endtime)) commit_time,\n             SUM(datediff ('microsec',DECODE(c.startqueue,'2000-01-01 00:00:00',c.startwork,c.startqueue),c.startwork)) commit_queue_time\n      FROM stl_query b,\n           stl_commit_stats c,\n           stl_wlm_query d\n      WHERE b.xid = c.xid\n      AND   b.query = d.query\n      AND   c.xid > 0\n      GROUP BY 1,2,3\n      ORDER BY 1,2,3) IQ;",
+			"Signals": [
+				{
+					"Signal": "queue/nodes have heavy WLM queuing",
+					"Criteria": "pct_wlm_queue_time > 5",
+					"PopulationCriteria": "node != -1 ",
+					"Recommendation": "* Leverage concurrency scaling to avoid queuing.  Coupled with usage limits, customers can manage costs.  \n* Consider adding more cluster compute by either migrating to RA3 or adding additional nodes to your cluster via an elastic resize."
+				},
+				{
+					"Signal": "queue/nodes heavy commit queuing",
+					"Criteria": "pct_commit_queue_time > 5",
+					"PopulationCriteria": "node != -1",
+					"Recommendation": "Heavy parallel loading can slow down write operations.  \n* Batch write operations when possible to achieve high throughput write operations."
+				}
+			],
+			"Observations": []
+		},
+		"TableInfo": {
+			"SQL": "SELECT database db,schema namespace, \"table\" tablename, diststyle, sortkey1, max_varchar, sortkey1_enc,\n  sortkey_num, size, pct_used, empty, unsorted, stats_off, tbl_rows, skew_sortkey1, skew_rows,\n  estimated_visible_rows, risk_event, vacuum_sort_benefit\nFROM SVV_TABLE_INFO\nORDER BY tbl_rows desc;",
+			"Signals": [
+				{
+					"Signal": "tables with wide columns",
+					"Criteria": "max_varchar > 1000",
+					"PopulationCriteria": "",
+					"Recommendation": "Use caution when setting a large length on varchar fields.  When allocating memory for queries using these fields,  Redshift will allocate based on the maximum values and queries are more likely to spill to disk.\n* Reduce varchar widths to sizes appropriate for the incoming data."
+				},
+				{
+					"Signal": "large tables without a sort key",
+					"Criteria": "sortkey1 = ''",
+					"PopulationCriteria": "tbl_rows > 5000000",
+					"Recommendation": "Adding a sort key can speed up queries with predicates.  \n* Review commonly filtered fields on the fact table and set sort keys accordingly."
+				},
+				{
+					"Signal": "large tables with skew",
+					"Criteria": "skey_rows > 1.5",
+					"PopulationCriteria": "tbl_rows > 5000000",
+					"Recommendation": "Heavy skew can cause queries to perform slower as they are waiting on the node with the most data to complete before returning the result set.  \n* Modify the distribution key to choose a better key or set the DISTSTYLE to EVEN."
+				},
+				{
+					"Signal": "large tables with unsorted data",
+					"Criteria": "unsorted > 10",
+					"PopulationCriteria": "tbl_rows > 5000000",
+					"Recommendation": "Table which contain a sort key but have not been vacuumed with not benefit from the sort key.  \n* While Auto Vacuum should resolve these scenarios, in busy clusters, customers should schedule the VACUUM SORT operation."
+				},
+				{
+					"Signal": "tables with interleaved sort keys",
+					"Criteria": "sortkey1 like '%INTERLEAVED%'",
+					"Recommendation": "VACUUM REINDEX is required to take advantage of tables with interleaved sort keys, however it is an expensive operations and in many cases the performance benefit is not worth the additional maintenance effort.  \n* Re-Evaluate that INTERLEAVED sort keys are required and are providing benefits.\n* If needed, ensure VACUUM REINDEX is being run regularly.\n* If not needed, re-build tables with Compound Sort Keys.",
+					"PopulationCriteria": "tbl_rows > 5000000"
+				},
+				{
+					"PopulationCriteria": "tbl_rows <= 5000000",
+					"Criteria": "diststyle not like '%ALL%'",
+					"Signal": "small tables without an ALL distribution",
+					"Recommendation": "Small tables consume less storage, are more likely to have a colocated join, have less skew and perform better when set with the DISTSTYLE of ALL.\n* Alter the table to set DISTSTYLE ALL"
+				},
+				{
+					"Signal": "small tables with a sort key",
+					"Criteria": "sortkey1 != ''",
+					"PopulationCriteria": "tbl_rows <= 5000000",
+					"Recommendation": "Sort keys are only effective on larger tables and will add extra overhead and storage on smaller tables.\n* Re-build small tables and remove sort keys  "
+				},
+				{
+					"Criteria": "(tbl_rows - estimated_visible_rows) / tbl_rows > .1",
+					"PopulationCriteria": "tbl_rows > 5000000",
+					"Signal": "large tables needing a vacuum delete",
+					"Recommendation": "For busy clusters AUTO VACUUM DELETE may not be running.\n* Schedule a VACUUM DELETE operation regularly (at least daily) "
+				},
+				{
+					"Criteria": "stats_off > 10",
+					"Signal": "tables with out of date statistics",
+					"Recommendation": "For busy clusters AUTO ANALYZE may not be running.\n* Schedule a ANALYZE operation regularly "
+				},
+				{
+					"Criteria": "unsorted > 10",
+					"PopulationCriteria": "tbl_rows > 5000000",
+					"Signal": "large tables with unsorted data",
+					"Recommendation": "For busy clusters AUTO VACUUM SORT may not be running.\n* Schedule a VACUUM SORT operation regularly (at least weekly) "
+				}
+			]
+		},
+		"SpectrumPerformance": {
+			"SQL": "select external_table_name \n       , count(1) Query_Count \n       , sum(case when is_partitioned = 't' then 1 else 0 end) Partitioned_Query_Count \n       , max(total_partitions) Total_Table_Partitions \n       , avg(case when qualified_partitions != 0 then qualified_partitions end) Avg_Qualified_Partitions \n       , sum(case when qualified_partitions < total_partitions then 1 else 0 end) Queries_With_Partition_Pruning \n       , sum(case when qualified_partitions = 0 then 1 else 0 end) Queries_Using_No_S3Files \n       , avg(case when qualified_partitions != 0 then avg_assigned_partitions end) AvgAssigned_Partitions \n       , avg(case when qualified_partitions != 0 then avg_request_parallelism end) Avg_Parallelism \n       , avg(case when qualified_partitions != 0 then files end) Avg_Files \n       , avg(case when qualified_partitions != 0 then splits end) Avg_Split \n       , avg(skipped_row_groups) Avg_Skipped_Row_Groups \n       , avg(elapsed) Avg_Elapsed \n       , sum(elapsed) Total_Elapsed \nfrom svl_s3query_summary lq \nleft outer join svl_s3partition_summary lp on lq.query = lp.query \nleft outer join (select query, sum(skipped_row_groups) skipped_row_groups \nFrom svl_s3requests \ngroup by query) lr on lq.query = lr.query \nwhere starttime >= dateadd(day, - 7, CURRENT_DATE) and aborted = 0 \ngroup by external_table_name \norder by Total_Elapsed desc;",
+			"Signals": []
+		},
+		"QueueHealth": {
+			"SQL": "select date_trunc('hour',dateadd('hour', -7, service_class_start_time)) exechour \n  , service_class \n  , sum(decode(final_state, 'Completed',decode(action, 'abort',0,1),'Evicted',0,null::int)) as complete_cnt \n  , sum(decode(final_state, 'Completed',decode(action, 'abort',1,0),'Evicted',1,null::int)) as abort_evict_cnt \n  , sum(duration::decimal/1000) compile_sec \n  , sum(compile) compile_cnt \n  , sum(coalesce(is_diskbased, 0)) disk_cnt \n  , sum(total_queue_time/1000000) queue_sec \n  , sum(total_exec_time/1000000) exec_sec \n  , sum(query_cpu_time) as cpu_sec \n  , sum(query_temp_blocks_to_disk) as total_spill \n  , sum(scan_row_count) as row_scan \n  , sum(join_row_count) as join_rows \n  , sum(nested_loop_join_row_count) as nl_join_rows \n  , sum(return_row_count) as ret_rows \nfrom STL_WLM_QUERY q \nleft join stl_wlm_rule_action using (userid, query, service_class) \nleft join svl_query_metrics_summary as m using (userid, query, service_class) \nleft join ( \n  select userid, query, service_class, max(case when is_diskbased = 'f' then 0 else 1 end)  is_diskbased \n  from svl_query_summary qs \n  join STL_WLM_QUERY q1 using (userid, query) \n  where service_class_start_time > current_date-2 and userid > 1 \n  group by 1,2,3) using (userid, query, service_class) \nleft join ( \n  select userid, query, max(compile) as compile, sum(datediff('ms',starttime,endtime)) duration \n  from svl_compile where starttime >= current_date-2 and userid > 1 \n  group by userid, query) using (userid, query) \nwhere service_class_start_time > current_date-2 and userid > 1 \ngroup by 1,2 \norder by 1,2;",
+			"Signals": [
+				{
+					"Signal": "hours/queues where queries spilled to disk",
+					"Criteria": "disk_cnt > 10 ",
+					"PopulationCriteria": "",
+					"Recommendation": "Spilling to disk is an indication of not enough memory being allocated to a query.  Potential resolutions include: \n* Increase you queue memory allocation or migration to AutoWLM\n* Add more nodes to your cluster to increase your memory capacity\n* Review the query logic to avoid the need for large amounts of memory\n* Review your varchar type definitions, narrow columns require less memory."
+				},
+				{
+					"Signal": "hours/queues with a high compile count",
+					"Criteria": "compile_cnt > 10",
+					"PopulationCriteria": "",
+					"Recommendation": "High compile count can be caused by queries executed against new tables.  \n* Review your workload to favor insert/delete operations instead of drop/create operations if possible."
+				},
+				{
+					"Signal": "hours/queues with a high nl join row count",
+					"Criteria": "nl_join_rows > 1000",
+					"PopulationCriteria": "",
+					"Recommendation": "Nested Loop joins are indications of a cartesian product.  \n* Review queries to resolve nested loop joins.  \n* Adding query monitoring rules to prevent NL join queries.\n"
+				}
+			]
+		}
+	}
+}
