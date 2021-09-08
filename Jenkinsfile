@@ -3,7 +3,7 @@
 2. Pushes image to dockerhub
 3. Deploys the container image as a stand alone container
 4. Executes Redshift pipeline code for execution
-Adding trigger
+
 */
 
 pipeline {
