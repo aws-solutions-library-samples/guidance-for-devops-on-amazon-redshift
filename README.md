@@ -1,12 +1,13 @@
 ## My Project
 
 TODO: Fill this README out!
-Testing some chanhges
+Testing
 
 Be sure to:
 
 * Change the title in this README
 * Edit your repository description on GitHub
+
 
 ## Security
 
