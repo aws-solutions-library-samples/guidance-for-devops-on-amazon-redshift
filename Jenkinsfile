@@ -15,7 +15,7 @@ pipeline {
     AWS_SECRET_ACCESS_KEY= credentials('SECRET_ACCESS_KEY')
     AWS_DEFAULT_REGION='us-west-2'
     configFile ='query_redshift_api.ini'
-    output = 'c'
+    output = 'f'
     name = 'rs_containerv1'
     /*Parameters to be modified */
     clusterconfigfile='dw_config.ini'
