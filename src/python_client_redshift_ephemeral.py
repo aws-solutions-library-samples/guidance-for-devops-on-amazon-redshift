@@ -12,6 +12,7 @@ import time
 import os, sys
 import boto3
 import uuid
+#from rollback import rollback
 # file_dir = os.path.dirname(__file__)
 # sys.path.append(file_dir)
 from RedshiftEphemeral import RedshiftEphemeral
@@ -143,6 +144,7 @@ def create_cluster_and_execute_query(clusterconfigfile, clusterconfigparm,output
     print('================Ending execution of sql statement =====================')
     x = val
     for i in range(len(x)):
+        df2 = pd.DataFrame()
         result = c1.execute_sql(x[i], 'statement id')
         # print(result)
         print('============statement', i, 'execution results============================')
@@ -151,7 +153,7 @@ def create_cluster_and_execute_query(clusterconfigfile, clusterconfigparm,output
             print('No results - statement executed successfully')
         else:
             df2 = c1.convert_results_to_df(result)
-            if df2.empty != True:
+            if not df2.empty:
                 if output == 'f':
                     dir = uuid.uuid4().hex.upper()[0:6]
                     os.mkdir('output_data'+'/'+dir)

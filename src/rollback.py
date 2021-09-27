@@ -79,8 +79,10 @@ def read_config_file(config_file_name):
         print(e)
     return dict_x
 
-if __name__ == "__main__":
+
+def main():
     op_dict = read_config_file('query_redshift_api.ini')
     object_name, object_type = identify_objects_for_rollback(op_dict,'DDL_v05')
     rename_objects_for_backup(object_name,object_type)
-
+if __name__ == "__main__":
+    main()
