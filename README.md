@@ -1,19 +1,12 @@
-<<<<<<< HEAD
 # Amazon Redshift Devops
 
 ## Overview
 CI/CD in the context of application development is a well understood topic, and there are numerous patterns and tools that developers can use to build their pipelines to handle the build, test, deploy cycle once a new commit gets into version control. For data, schema or stored procedure changes directly related to the application, typically this is part of a code base and is included in the code repository of the application. These changes are then applied when the application gets deployed to the test/prod environment. 
-=======
-## Redshift DevOps
-
-This project helps create DevOps best practice to manage changes fore Redshift datapipeline.
->>>>>>> 31931ccfac78d27e377370776146469f24441a1c
 
 This blog post will demonstrate how the same set of approaches can be applied to stored procedures, DML (data manipulation language) and schema changes to data warehouses like Amazon Redshift. In addition, database migrations and tests require connection information to the relevant Amazon Redshift cluster, we will be demonstrating how this can be integrated securely using AWS Secrets Manager.
 
 Stored procedures are considered code and as such should undergo the same rigour as application code. This means that the pipeline should involve running test against changes to make sure that no regressions are introduced to the production environment. Lastly, since we’re automating the deployment of both stored procedures and schema changes, this significantly reduces inconsistencies in between environments.
 
-<<<<<<< HEAD
 ## Proposed Architecture
 Open-source deployment and deployment using CI/CD tool Jenkins and Docker. Docker container will be used to build redshift pipeline to deploy DDL/DML changes.  When a code change is pushed by developer into Git, webhooks trigger a build process in Jenkins. The build job is a pipeline (descriptive/scripted) , builds the docker image (based on docker config provided) and pushes the image into docker hub. Jenkins pipeline pulls the dockerhub image and deploys that as a container executing the pipeline to run DDL/DML statements.
 
@@ -185,8 +178,6 @@ Click the refresh button on the top right corner to track the progress of the st
 
     ![Deploy Step 18](doc-images/stack_step18.png)
 
-=======
->>>>>>> 31931ccfac78d27e377370776146469f24441a1c
 ## Security
 
 See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
