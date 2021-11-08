@@ -1,0 +1,37 @@
+// Jenkins scripted pipeline
+// variables created
+// 1. Github credentials
+// 2. Docker password
+// 3. AWS account secret and access key
+
+node{
+   stage('SCM Checkout'){
+       git branch: 'main', credentialsId: 'dbdabe2b-c1e7-4f14-8459-2a336e471bc4', url: 'https://github.com/aws-samples/devops-redshift.git'
+   }
+    stage('Build Docker Image'){
+         sh 'docker build --no-cache -t DOCKERRPONAME/rs-pipeline:2.0.0 .' //replace DOCKERREPONAME with your repo name
+   }
+    stage('Push Docker Image') {
+        withCredentials([string(credentialsId: 'docker-pwd', variable: 'dockerHubPwd')]) {
+        sh "docker login -u YOURDOCKERLOGON -p ${dockerHubPwd}" // Replace your DOCKERLOGON with docker log in id.
+    }
+        sh 'docker push YOURDOCKERLOGON/rs-pipeline:2.0.0'
+       }
+    stage ('Run container on Server') {
+        withCredentials([string(credentialsId: 'SECRET_ACCESS_KEY', variable: 'AWS_SECRET_ACCESS_KEY')]) {
+        def configFile ='query_redshift_api.ini'
+        def sectionName ='ALL'
+        def query_id ='ALL'
+        def output='f'
+        def clusterconfigfile='dw_config.ini'
+        def clusterconfigparm='DEV'
+        def execute_command = "python3 python_client_redshift_ephemeral.py rollforward ${configFile} ${sectionName} ${query_id} ${output} ${clusterconfigfile} ${clusterconfigparm}"
+        def dockerRun = "docker run -d -it  --name rs_containerv1 -e AWS_ACCESS_KEY_ID=AKIAWPVSKFO3WFO5FLUL -e AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} -e AWS_DEFAULT_REGION=us-west-2 YOURDOCKERLOGON/rs-pipeline:2.0.0 ${execute_command}" //replace DOCKERLOGON with your user id
+        sh "${dockerRun}"
+        }
+    }
+    // stage('stop and terminate docker container'){
+    //     sh 'docker stop rs_containerv1'
+    //     sh 'docker rm rs_containerv1'
+    // }
+}

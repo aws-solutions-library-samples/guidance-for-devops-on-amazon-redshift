@@ -1,24 +1,8 @@
-import dataclasses
-import sys
-from typing import List, Any
 import configparser
 config = configparser.ConfigParser()
-import pandas as pd
-import numpy as np
-import time
-import os, sys
 # file_dir = os.path.dirname(__file__)
 # sys.path.append(file_dir)
 from RedshiftEphemeral import RedshiftEphemeral
-
-
-# Determine the number of tags between last item in config file and release rolled back to
-
-#DDL_v01
-#DDL_v02
-#DDL_v03
-#DDL_v04
-#DDL_v05
 
 def identify_objects_for_rollback(config_file_dict,rollback_section):
     #Identify sections after the rollback to section
@@ -26,7 +10,7 @@ def identify_objects_for_rollback(config_file_dict,rollback_section):
     stmt = ''
     objectName = []
     objectType = []
-    for k,v in op_dict.items():
+    for k,v in config_file_dict.items():
         section_list.append(k)
     #Iterate across identified sections to extract objects/tables
     indexes = [i for i, x in enumerate(section_list) if x == rollback_section]
@@ -49,23 +33,36 @@ def identify_objects_for_rollback(config_file_dict,rollback_section):
                     x = ((stmt.split(' ')[4]).split(".")[1]).split("(")[0]
                 else:
                     x = (stmt.split(' ')[4]).split("(")[0]
-            objectName.append(x)
-            objectType.append(object_type)
+            if x not in objectName:
+                objectName.append(x)
+                objectType.append(object_type)
+        objectNameFinal =  list(dict.fromkeys(objectName))
+        objectTypeFinal = list(dict.fromkeys(objectType))
         print(objectName)
         print(objectType)
         return objectName, objectType
 
 
-def rename_objects_for_backup(object_name,object_type):
+def rename_objects_for_backup(object_name,object_type,rollback_section):
     #generate backup script for naming the table
     backup_stmt = []
+    rollforward_stmt = []
     for i in range (0,len(object_type)):
             if object_type[i].lower() == 'table':
                 backup_stmt.append('Alter table ' + object_name[i] + ' rename to ' + object_name[i] + '_bckup' + ';')
     print(backup_stmt)
     #call procedure to redeploy DDL until the rollback section.
-
-
+    for section in config.sections():
+        if section != rollback_section:
+            for key, val in config.items(section):
+                for i in object_name:
+                    if i in val and (('create' in val) or ('alter' in val)):
+                        rollforward_stmt.append(val)
+                    else:
+                        None
+    #return rollforward_stmt
+    rollforward_stmt_final = list(dict.fromkeys(rollforward_stmt))
+    return rollforward_stmt_final
 
 def read_config_file(config_file_name):
     config.read(config_file_name)
@@ -79,10 +76,12 @@ def read_config_file(config_file_name):
         print(e)
     return dict_x
 
-
-def main():
-    op_dict = read_config_file('query_redshift_api.ini')
-    object_name, object_type = identify_objects_for_rollback(op_dict,'DDL_v05')
-    rename_objects_for_backup(object_name,object_type)
 if __name__ == "__main__":
-    main()
+    op_dict = read_config_file('../query_redshift_api.ini')
+    object_name, object_type = identify_objects_for_rollback(op_dict,'DDL_v02')
+    ddl_list = rename_objects_for_backup(object_name,object_type,rollback_section='DDL_v02')
+    print(ddl_list)
+    #forward execution statement
+    #check the config file until the section until roll back is issued
+    #Extract all statements for object seqeuntially
+    #Return a list with the statements to be executed

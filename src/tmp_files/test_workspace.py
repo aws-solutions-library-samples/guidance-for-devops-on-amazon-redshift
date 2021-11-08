@@ -45,4 +45,4 @@ def create_config_files(input_file_name, output_file_name,obj_type):
 if __name__ == "__main__":
     #create_config_files('f_sql_stmt_0','view.ini','view')
     #create_config_files('f_sql_stmt_1','tables.ini','table')
-    create_config_files('f_sql_stmt_3','functions.ini','sp')
+    create_config_files('f_sql_stmt_3', 'functions.ini', 'sp')

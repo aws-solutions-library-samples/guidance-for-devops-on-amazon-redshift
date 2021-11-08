@@ -1,13 +1,11 @@
-## My Project
+## Redshift DevOps
 
-TODO: Fill this README out!
-Testing
+This project helps create DevOps best practice to manage changes fore Redshift datapipeline.
 
 Be sure to:
 
 * Change the title in this README
 * Edit your repository description on GitHub
-
 
 ## Security
 

@@ -3,7 +3,7 @@
 2. Pushes image to dockerhub
 3. Deploys the container image as a stand alone container
 4. Executes Redshift pipeline code for execution
-5. testing new value dry run changes
+5. Adding changes for dry run
 */
 
 pipeline {
@@ -15,7 +15,7 @@ pipeline {
     AWS_SECRET_ACCESS_KEY= credentials('SECRET_ACCESS_KEY')
     AWS_DEFAULT_REGION='us-west-2'
     configFile ='query_redshift_api.ini'
-    output = 'f'
+    output = 'c'
     name = 'rs_containerv1'
     /*Parameters to be modified */
     clusterconfigfile='dw_config.ini'
@@ -50,7 +50,7 @@ pipeline {
 	        stage ('Run container on Server') {
 	        steps
 	        { script {
-		        execute_command = "python3 python_client_redshift_ephemeral.py rollforward $configFile $sectionName $query_id $output $clusterconfigfile $clusterconfigparm "
+		        execute_command = "python3 python_client_redshift_ephemeral.py rollforward $configFile $sectionName $query_id $output $clusterconfigfile $clusterconfigparm"
 		        dockerRun = "docker run -d -it  -v /home/ec2-user/container_data:/src/output_data --name rs_containerv1 -e AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY -e AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION jeetesh9108/rs-pipeline:2.0.0 $execute_command"
 		        sh '''OLD="$(docker ps --all --quiet --filter name=rs_containerv1)"
                                 if [ -n "$OLD" ]; then

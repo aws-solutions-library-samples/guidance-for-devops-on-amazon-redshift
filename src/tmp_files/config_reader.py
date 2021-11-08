@@ -41,5 +41,5 @@ def return_formed_query(config_file_name,section_name=None,query_id=None):
     return val
 
 if __name__ == "__main__":
-    return_formed_query('query_redshift_api.ini', 'DML_v01')
+    return_formed_query('../query_redshift_api.ini', 'DML_v01')
 
