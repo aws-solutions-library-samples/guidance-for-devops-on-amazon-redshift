@@ -13,7 +13,7 @@ pipeline {
     dockerImage = ''
     AWS_ACCESS_KEY_ID='AKIAWPVSKFO3WFO5FLUL'
     AWS_SECRET_ACCESS_KEY= credentials('SECRET_ACCESS_KEY')
-    AWS_DEFAULT_REGION='us-west-2'
+    AWS_DEFAULT_REGION='us-east-1'
     configFile ='query_redshift_api.ini'
     output = 'c'
     name = 'rs_containerv1'
