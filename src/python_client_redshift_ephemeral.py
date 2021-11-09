@@ -43,11 +43,7 @@ class Arguments:
 global exec_pointer,val_l,val  #[0] -> section name , [1] query_id name
 exec_pointer,val_l,val = [],[],[]
 
-# global val_l
-# val_l = []
-# global val
-# val= []
-#s3_client = boto3.client('s3')
+
 s3 = boto3.resource('s3')
 #configuration
 s3_bucket = 'jeetesh-redshiftdevops-cendelete'
@@ -75,8 +71,6 @@ def validate(args: List[str]):
     else:
         raise SystemExit(USAGE)
     check_type(arguments)
-    #print(arguments)
-    #print(*args)
     return_formed_query(*args)
 
 def identify_objects_for_rollback(config_file_dict,rollback_section):
@@ -93,7 +87,6 @@ def identify_objects_for_rollback(config_file_dict,rollback_section):
     #rollforward_section_list = section_list[:indexes[0]]
     for item in rollback_section_list:
         for k,v in config_file_dict[item].items():
-            #print(k,v)
             stmt = v
             object_operation = stmt.split(' ')[0]
             if stmt.split(' ')[1].lower() == 'table':
@@ -111,8 +104,6 @@ def identify_objects_for_rollback(config_file_dict,rollback_section):
             if x not in objectName:
                 objectName.append(x)
                 objectType.append(object_type)
-        # print(objectName)
-        # print(objectType)
         return objectName, objectType
 
 
@@ -123,7 +114,6 @@ def rename_objects_for_backup(object_name,object_type,rollback_section):
     for i in range (0,len(object_type)):
             if object_type[i].lower() == 'table':
                 backup_stmt.append('Alter table ' + object_name[i] + ' rename to ' + object_name[i] + '_bckup_' + str(time.time_ns()) +';') #allow multiple executions.
-    #print(backup_stmt)
     #call procedure to redeploy DDL until the rollback section.
     for section in config.sections():
         if section != rollback_section:
@@ -173,7 +163,6 @@ def read_and_write_execution_pointer(operation,listname,bucketname,path_name=Non
 #return a list from s3 data
 def parse_list(s):
     final = [re.sub(r"[^a-zA-Z0-9_]+", '', k) for k in s.split(",")]
-    #print(final)
     i = 0
     final_list = []
     for i in range (0,len(final)-1):
@@ -189,14 +178,12 @@ def parse_list(s):
 
 #convert config file to a dictionary
 def read_config_file(config_file_name=None, pointer_name=None):
-    #print(exec_pointer)
     pointer = pointer_name
     config.clear()
     config.read(config_file_name)
     dict_x = {}  # empty dictionary
     try:
         for section in config.sections():
-            #print(section)
             dict_x[section] ={} # add a new section for the dictionary
             for key1, val1 in config.items(section):
                 dict_x[section][key1] = val1
@@ -314,7 +301,7 @@ def return_formed_query(operation=None,config_file_name=None,section_name=None,q
 def validate_test_case(test_case_num,output,expected_output):
     try:
         assert output == expected_output
-        #print("verify results of test case:" + test_case_num)
+        print("verify results of test case:" + test_case_num)
     except Exception as e:
         print(e)
     return
@@ -368,9 +355,7 @@ def create_cluster_and_execute_query(clusterconfigfile, clusterconfigparm,output
     x = exec_pointer_new[0]
     for i in range(len(x)):
         result = c1.execute_sql(x[i], 'statement id')
-        # print(result)
         print('============statement', i, 'execution results============================')
-        # print(result)
         if result == None:
             print('No results - statement executed successfully')
         else:
@@ -399,15 +384,12 @@ def create_cluster_and_execute_query(clusterconfigfile, clusterconfigparm,output
     test_pointer_new_results = return_formed_query(operation='rollforward',config_file_name='test_cases.ini',section_name='RESULTS' #[RESULTS] contains testcase results
                                            ,query_id='ALL',output='s',clusterconfigfile=None,clusterconfigparm=None
                                            ,pointer=test_pointer)
-    #print('Test case results:',test_pointer_new_results[0])
     #execute statement to capture
     x = test_pointer_new[0]
 
     for i in range(len(x)):
         result = c1.execute_sql(x[i], 'statement id')
-        # print(result)
         print('============statement', i, 'execution results============================')
-        # print(result)
         if result == None:
             print('No results - statement executed successfully')
         else:
@@ -424,8 +406,6 @@ def create_cluster_and_execute_query(clusterconfigfile, clusterconfigparm,output
                     os.mkdir('output_data'+'/'+dir)
                     filename = 'output_data' +'/' + dir+ '/' + 'sql_stmt_' + str(i)
                     df2.to_csv(filename, index=False,header=False,quoting=csv.QUOTE_NONE,escapechar=' ')
-                # else:
-                #     print(df2)
             else:
                 print('No result returned, please verify statement execution:', x[i])
     print('================Test case execution successfully completed======================')
