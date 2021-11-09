@@ -427,5 +427,6 @@ def main() -> None:
         validate(args)
         create_cluster_and_execute_query(clusterconfigfile=sys.argv[6], clusterconfigparm=sys.argv[7],output=None)
         #data_export_to_s3(configfile='dw_config.ini', configparm='DWH',s3_bucket_name=None)
+        # adding random characters for testing
 if __name__ == "__main__":
     main()
