@@ -178,6 +178,171 @@ Click the refresh button on the top right corner to track the progress of the st
 
     ![Deploy Step 18](doc-images/stack_step18.png)
 
+## Redshift CI/CD using AWS services 
+
+In this section we will implement the same CI/CD pipeline we reviewed, but will use AWS CI/CD services components. Below are the component details:
+
+| Service Name              | Description |
+| ------------------------- | ------------------------------------------ |
+| [AWS CodeCommit](https://aws.amazon.com/codecommit/)        | This is the version control system where you will be storing your code       |
+| [AWS CodeBuild](https://aws.amazon.com/codebuild/)        | This service will be used to build the containers to build runtime components for code execution. The file `buildspec.yml` is used to build the container image <br/> - Prebuild: Logs on to private repository on AWS ECR (Elastic Container Repository), builds an image based on the docker file specified. <br/> - Build: A base image of ubuntu 18.04 is pulled from docker hub, Linux packages, python 3.7 , aws cli are installed and code from repo is copied to the src directory of the container. <br/> - Postbuild: Docker image is pushed to the ECR repository and tagged as the latest image.|
+| [AWS ECS](https://aws.amazon.com/ecs/)               | A cluster is created using the AWS ECS service. A task to deploy DDL runs as a service to deploy the DDL/DML and execute test cases.  The task picks up the latest image created by CodeBuild to deploy the changes. |
+| [AWS CodePipeline](https://aws.amazon.com/codepipeline/)      | Responsible for the overall orchestration from source to Redshift cluster deployment |
+
+As you can tell from the description of the different components above, we're also using some additional dependencies at the code level, these are as follows:
+
+| Name              | Description |
+| ------------------------- | ------------------------------------------ |
+| Pyunit | Open source testing framework used to execute test cases against the changes that have been deployed on the Redshift cluster.  |
+
+In the succeeding sections, we would be diving deeper into how all of these integrate together.
+
+### Push Code to the CodeCommit Repository
+
+We will create a new repository redshift_devops. Navigate to AWS console> codebuild>create repository and provide the name and description on the create repository form. 
+
+![Deploy Step 19](doc-images/stack_step19.png)
+
+Before you can push any code into this repo you have to setup your Git credentials, follow the steps outlined in the CodeCommit [documentation](https://docs.aws.amazon.com/codecommit/latest/userguide/setting-up-gc.html) on how to do this. Once you reached Step 4, copy the HTTPS URL, and instead of cloning, we would be adding the CodeCommit repo URL into the code that we cloned earlier by doing the following steps:
+
+`git remote add codecommit <repo_https_url> `
+
+`git push codecommit main`
+
+The last step will populate the repository and you can confirm it by refreshing the CodeCommit console. If you get prompted for username and password, input the Git credentials that you generated and downloaded from Step 3.
+
+### AWS CodeBuild
+
+Navigate to AWS console> CodeBuild and select create build project. Providing the following details:
+
+1. Project name as redshiftdevops. 
+
+2. Description of the build project. 
+
+![Deploy Step 20](doc-images/stack_step20.png)
+
+3. Source – on the drop down select AWS CodeCommit
+    <br/> Name of the repository should be auto-populated, select the CodeBuild repository created in the previous step. Select the branch as master
+
+![Deploy Step 21](doc-images/stack_step21.png)
+
+4. Environment Image – select managed image
+    <br/> Operating system as Ubuntu or Amazon Linux 2
+    <br/> Runtime – standard
+
+![Deploy Step 22](doc-images/stack_step22.png)
+
+5. Service role – You can either chose to create a new service role or choose an existing service role you might have created. For IAM policy details please refer to [link](https://docs.aws.amazon.com/codebuild/latest/userguide/setting-up.html)
+
+6. Buildspec file – AWS CodeBuild uses the buildspec.yml file to perform the pre-build, build and post-build steps. This file must be defined in the root directory of CodeCommit repo.  You can also define a custom name and location of the buildspec.yml file and provide the details. 
+
+![Deploy Step 23](doc-images/stack_step23.png)
+
+7.	Artifacts – we will not be generating any artifacts, but will be uploading the container image directly to ECR. Select the Type as No artifacts
+
+![Deploy Step 24](doc-images/stack_step24.png)
+
+8. Logs – Add a group name and stream name to capture the logs.
+
+![Deploy Step 25](doc-images/stack_step25.png)
+
+Once all the details have been provided click the "create build project button"
+
+
+### AWS Elastic Container Registry (ECR)
+
+In the next step, we will create a private ECR repo to host the build image create by AWS Build service.Navigate to ECR , AWS console > ECR.
+
+Click create repository, select the privacy setting as private and provide a repository name. 
+
+![Deploy Step 26](doc-images/stack_step26.png)
+
+Please note that once a ECR repository has been created visibility settings cannot be changed. 
+
+
+### AWS Elastic Container Service (ECS)
+
+From AWS console navigate to ECS (Elastic container service). Click create cluster and select the option as “Networking only”, as we will be using AWS Fargate to create and manage our cluster service. Click next, provide cluster name and click create.
+
+![Deploy Step 27](doc-images/stack_step27.png)
+
+On the left hand pane, select Task Definitions, click create a new task definition. On Launch type compatibility select FARGATE and click next. This will present task and container definition screen. Provide the following details:
+1.	Task definition name – Task name 
+2.	Task role – The drop down should provide ecsTaskExecutionRole
+3.	Operating system family - Linux
+4.	Task execution role – ecsTaskExecutionRole
+5.	Task memory – 2 GB 
+6.	Task vCPU – 1 vCPU
+
+![Deploy Step 28](doc-images/stack_step28.png)
+
+7.	Click Add Container and it would present a new screen:
+    -   Container name – Name of the container running the deployment pipeline
+    -   Image – URI of the private ECS repo created
+        <br/>`AWSACCOUNTNUMBER.dkr.ecr.us-east-1.amazonaws.com/redshiftdevops:redshiftdevops`
+
+        ![Deploy Step 29](doc-images/stack_step29.png)
+    -   CPU Units - 1
+    -   Environment – Paste the following command:
+        <br/> `python3,python_client_redshift_ephemeral.py,rollforward,query_redshift_api.ini,ALL,ALL,s,dw_config.ini,DEV`
+
+        ![Deploy Step 30](doc-images/stack_step30.png)
+Leave the other parameter as blank and click create. This step completes the ECS cluster and task definition needed to deploy changes to Redshift database. 
+
+8.	Select Task definitions on the left hand pane, select task created, click actions and select deploy as a service.
+
+![Deploy Step 31](doc-images/stack_step31.png)
+
+This step created the task as a continuous service, which picks up changes and deploys them to the Redshift cluster. 
+
+
+### AWS CodePipeline
+
+To bring all of these components together, we will be using CodePipeline to orchestrate the flow from source code until code deployment. There are some additional capabilities you can do with CodePipeline. For example, you can add an [Approval step](https://docs.aws.amazon.com/codepipeline/latest/userguide/approvals-action-add.html) after a code change is made for someone to review the code change and perform a build and deploy.
+
+Navigate to CodePipeline from the console and click create pipeline. Our Pipeline will consist of two stages Add source stage and Add build stage. Provide a pipeline name and chose an existing or new IAM service to deploy the change. Click Next 
+
+![Deploy Step 32](doc-images/stack_step32.png)
+
+Click Next and select source provider ad AWS CodeCommit. Select repository name from the drop down and Branch name as master.
+
+![Deploy Step 33](doc-images/stack_step33.png)
+
+Add the build stage, by selecting code provider as AWS CodeBuild, Region and Project name. Select Build type as Single Build. Click Next and click skip deploy stage.
+
+Review the changes and click create pipeline, this should create the pipeline needed.
+
+
+### Example Scenario
+
+Let’s take an example scenario, we would add two new queries in the redshift_query.ini file to execute on existing Redshift cluster. Copy the below lines towards the end of the file.
+
+`[DDL_v08]`
+
+`query6 = create table test_table_service(col1 varchar(10), col2 varchar(20));`
+
+We will need to commit the changes by running the following commands on terminal.
+
+`git add .`
+
+`git commit -m "changes to query.ini file"`
+
+`git push`
+
+This should push the changes to the CodeCommit repository. AWS code pipeline will trigger build job , create the docker image and push it to AWS ECR.
+
+![Deploy Step 34](doc-images/stack_step34.png)
+
+ECS service picks up all the changes and deploys it to Redshift, and the table gets created. 
+
+
+## Conclusion
+
+Using CI/CD principles in the context of Amazon Redshift stored procedures and schema changes improves reliability and repeatability of change management process. Running test cases validates database changes are providing expected output like application code. If the test cases fail, changes can be backed out with a simple rollback command. 
+
+In addition, versioning migrations enables consistency across multiple environments and prevents issues arising from schema changes that are not applied properly. This increases confidence when changes are being made and improves development velocity as teams spend more time developing functionality rather than hunting for issues due to environment inconsistencies. 
+
+
 ## Security
 
 See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
