@@ -1,6 +1,11 @@
 version: 0.2
 #Adding changes for v0.2
 #adding changes for dry run
+env:
+  secrets-manager:
+    LOCAL_DOCKER_PASS: "docker_password"
+    LOCAL_DOCKER_USER: "docker_username"
+
 phases:
   pre_build:
     commands:
@@ -16,7 +21,7 @@ phases:
       - echo Build started on `date`
       - echo Building the Docker image...
       - aws ecr get-login-password --region us-east-1 | docker login --username AWS  --password-stdin 445976816567.dkr.ecr.us-east-1.amazonaws.com
-      - docker login --username jeetesh9108 --password J33t3sh@2017
+      - echo "${LOCAL_DOCKER_PASS}" | docker login -u "${LOCAL_DOCKER_USER}" --password-stdin
       - docker build -t $REPOSITORY_URI:redshiftdevops .
       - docker tag $REPOSITORY_URI:redshiftdevops $REPOSITORY_URI:$IMAGE_TAG
   post_build:
