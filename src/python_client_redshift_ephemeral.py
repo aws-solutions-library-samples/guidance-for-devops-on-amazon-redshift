@@ -309,7 +309,7 @@ def validate_test_case(test_case_num,output,expected_output):
 
 def create_cluster_and_execute_query(clusterconfigfile, clusterconfigparm,output):
     c1 = RedshiftEphemeral(clusterconfigfile, clusterconfigparm)
-    #c1.create_cluster()
+    c1.create_cluster()
     df1 = c1.extract_cluster_properties()
     print(df1)
     # declare a list of sql statements
@@ -414,7 +414,7 @@ def create_cluster_and_execute_query(clusterconfigfile, clusterconfigparm,output
                                      bucketname=s3_bucket,
                                      path_name=test_pointer_path_name)
     #delete cluster
-    #y = c1.delete_cluster()
+    y = c1.delete_cluster()
 
 def main() -> None:
     args = sys.argv[1:]
