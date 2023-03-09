@@ -2,14 +2,17 @@ FROM ubuntu:18.04
 
 RUN apt-get update && \
     apt-get install --no-install-recommends -y gcc && \
+    apt-get install python3-setuptools -y && \
     apt-get install --no-install-recommends -y python3.7 python3-pip python3-dev && \
-    #apt-get install --no-install-recommends -y build-essential && \
+    apt-get install --no-install-recommends -y build-essential && \
     #apt-get install --no-install-recommends -y python3-devel &&\
     apt-get install --no-install-recommends -y vim && \
     apt-get install --no-install-recommends -y curl && \
     apt-get install --no-install-recommends -y unzip && \
-    apt-get install python3-setuptools -y && \
     apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/\* /var/tmp/*
+
+RUN pip3 install --upgrade pip setuptools
+    #pip3 install -r requirements-pip.txt
 
 #RUN apt-get -y install build-essential
 #RUN apt-get -y install python3
