@@ -3,8 +3,8 @@ version: 0.2
 #adding changes for dry run
 env:
   secrets-manager:
-    LOCAL_DOCKER_PASS: "docker_password:"
-    LOCAL_DOCKER_USER: "docker_username:"
+    DOCKER_PASSWORD: "docker_password"
+    DOCKER_USERNAME: "docker_username"
     commands:
     -echo LOCAL_DOCKER_PASS
     -echo LOCAL_DOCKER_USER
