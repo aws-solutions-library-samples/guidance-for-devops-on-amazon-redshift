@@ -3,18 +3,16 @@ version: 0.2
 #adding changes for dry run
 env:
   secrets-manager:
-    DOCKER_PASSWORD: "docker_password"
-    DOCKER_USERNAME: "docker_username"
-    commands:
-    -echo LOCAL_DOCKER_PASS
-    -echo LOCAL_DOCKER_USER
+    LOCAL_DOCKER_USER: "docker_username:user_name"
+    LOCAL_DOCKER_PASS: "docker_password:password"
+    LOCAL_ACCOUNT_NUM: "ecr_account_num:account_num"
+
 phases:
   pre_build:
     commands:
       - echo Logging in to Amazon ECR...
       - aws --version
-      - aws ecr get-login-password --region us-east-1 | docker login --username AWS  --password-stdin 445976816567.dkr.ecr.us-east-1.amazonaws.com
-      #- REPOSITORY_URI=public.ecr.aws/l8d8o0v9/redshiftdevops
+      - aws ecr get-login-password --region us-east-1 | docker login --username AWS  --password-stdin "${LOCAL_ACCOUNT_NUM}".dkr.ecr.us-east-1.amazonaws.com
       - REPOSITORY_URI=445976816567.dkr.ecr.us-east-1.amazonaws.com/redshiftdevops
       - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
       - IMAGE_TAG=${COMMIT_HASH:=latest}
@@ -22,8 +20,10 @@ phases:
     commands:
       - echo Build started on `date`
       - echo Building the Docker image...
-      - aws ecr get-login-password --region us-east-1 | docker login --username AWS  --password-stdin 445976816567.dkr.ecr.us-east-1.amazonaws.com
-      - echo "${LOCAL_DOCKER_PASS}" | docker login -u "${LOCAL_DOCKER_USER}" --password-stdin
+      - aws ecr get-login-password --region us-east-1 | docker login --username AWS  --password-stdin "${LOCAL_ACCOUNT_NUM}".dkr.ecr.us-east-1.amazonaws.com
+      - echo "${LOCAL_DOCKER_PASS}"
+      - echo "${LOCAL_DOCKER_USER}"
+      - docker login -u "${LOCAL_DOCKER_USER}" --password "${LOCAL_DOCKER_PASS}"
       - docker build -t $REPOSITORY_URI:redshiftdevops .
       - docker tag $REPOSITORY_URI:redshiftdevops $REPOSITORY_URI:$IMAGE_TAG
   post_build:
@@ -32,10 +32,4 @@ phases:
       - echo Pushing the Docker images...
       - docker push $REPOSITORY_URI:redshiftdevops
       - docker push $REPOSITORY_URI:$IMAGE_TAG
-      - printf '[{"name":"your.task.definition.name","imageUri":"%s"}]' $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG > imagedefinitions.json
-#    artifacts:
-#      files:
-#      - '**/*'
-#      base_directory: base_location
-#      name: 's3://codepipeline-us-east-1-765774959167/redshiftdevops_pipel/SourceArti/'
-#      discard-path: no
+      - printf '[{"name":"your.task.definition.name","imageUri":"%s"}]' "${LOCAL_ACCOUNT_NUM}".dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG > imagedefinitions.json
