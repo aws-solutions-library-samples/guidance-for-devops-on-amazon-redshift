@@ -6,7 +6,8 @@
 
 node{
    stage('SCM Checkout'){
-       git branch: 'main', credentialsId: 'dbdabe2b-c1e7-4f14-8459-2a336e471bc4', url: 'https://github.com/aws-samples/devops-redshift.git'
+       git branch: 'main', credentialsId: 'dbdab' (--your credential id)
+                                , url: 'https://github.com/aws-samples/devops-redshift.git'
    }
     stage('Build Docker Image'){
          sh 'docker build --no-cache -t DOCKERRPONAME/rs-pipeline:2.0.0 .' //replace DOCKERREPONAME with your repo name
@@ -26,7 +27,7 @@ node{
         def clusterconfigfile='dw_config.ini'
         def clusterconfigparm='DEV'
         def execute_command = "python3 python_client_redshift_ephemeral.py rollforward ${configFile} ${sectionName} ${query_id} ${output} ${clusterconfigfile} ${clusterconfigparm}"
-        def dockerRun = "docker run -d -it  --name rs_containerv1 -e AWS_ACCESS_KEY_ID=AKIAWPVSKFO3WFO5FLUL -e AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} -e AWS_DEFAULT_REGION=us-west-2 YOURDOCKERLOGON/rs-pipeline:2.0.0 ${execute_command}" //replace DOCKERLOGON with your user id
+        def dockerRun = "docker run -d -it  --name rs_containerv1 -e AWS_ACCESS_KEY_ID=${AWS_ACCESS_ID} -e AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} -e AWS_DEFAULT_REGION=us-west-2 YOURDOCKERLOGON/rs-pipeline:2.0.0 ${execute_command}" //replace DOCKERLOGON with your user id
         sh "${dockerRun}"
         }
     }
