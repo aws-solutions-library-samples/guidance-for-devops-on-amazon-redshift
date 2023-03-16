@@ -1,352 +1,651 @@
-# Amazon Redshift Devops
+# Overview
 
-## Overview
-CI/CD in the context of application development is a well understood topic, and there are numerous patterns and tools that developers can use to build their pipelines to handle the build, test, deploy cycle once a new commit gets into version control. For data, schema or stored procedure changes directly related to the application, typically this is part of a code base and is included in the code repository of the application. These changes are then applied when the application gets deployed to the test/prod environment. 
+CI/CD in the context of application development is a well-understood
+topic. Developers can use numerous patterns and tools to create
+pipelines to handle build, test, and deployment cycles when a new commit
+gets into version control. While there are solutions to manage
+application CI/CD pipeline, managing database versioning with rollback
+remains a challenge.
 
-This blog post will demonstrate how the same set of approaches can be applied to stored procedures, DML (data manipulation language) and schema changes to data warehouses like Amazon Redshift. In addition, database migrations and tests require connection information to the relevant Amazon Redshift cluster, we will be demonstrating how this can be integrated securely using AWS Secrets Manager.
+This blog post will demonstrate how DevOps best practices and CI/CD
+principles can be applied to DDL (Data Definition Language), DML (data
+manipulation language), and schema changes to a data warehouses like
+Amazon Redshift. We will also examine how test cases can be executed
+against changes deployed to an environment. In addition, database
+migrations and tests require connection information to the relevant
+Amazon Redshift cluster; we will demonstrate how this can be integrated
+securely using AWS Secrets Manager.
 
-Stored procedures are considered code and as such should undergo the same rigour as application code. This means that the pipeline should involve running test against changes to make sure that no regressions are introduced to the production environment. Lastly, since we’re automating the deployment of both stored procedures and schema changes, this significantly reduces inconsistencies in between environments.
+DDL and DML are considered code and should operate at the same level of
+rigor as application code. This means that the pipeline should be
+involved in running tests against deployed changes to minimize
+issues/challenges introduced in the production environment. Lastly,
+since we\'re automating DDL and DML scripts, this helps reduce
+inconsistencies between the environments.
 
-## Proposed Architecture
-Open-source deployment and deployment using CI/CD tool Jenkins and Docker. Docker container will be used to build redshift pipeline to deploy DDL/DML changes.  When a code change is pushed by developer into Git, webhooks trigger a build process in Jenkins. The build job is a pipeline (descriptive/scripted) , builds the docker image (based on docker config provided) and pushes the image into docker hub. Jenkins pipeline pulls the dockerhub image and deploys that as a container executing the pipeline to run DDL/DML statements.
+# Proposed Architecture
 
+We will use two deployment models for implementing this solution. In the
+first model, solution is deployed using Jenkins and Docker. Docker
+containers will be used to build a pipeline to a deploy DDL/DML changes.
+When a developer pushes SQL code into Git, webhooks trigger a build
+process in Jenkins. The job triggers a pipeline in Jenkins (both
+descriptive/scripted examples are provided) that builds a docker image
+(based on the docker config provided) and pushes the image into docker
+hub (The image is first updated in docker hub to ensure consistency).
+Jenkins pulls the docker hub image and deploys it as a container.
+Finally, Jenkins executes DDL/DML within the container.
 
-![Architecture](doc-images/architecture.png)
+![](images/media/image1.png){width="6.263888888888889in"
+height="3.4902777777777776in"}
 
-## Running the Redshift pipeline
-CI/CD tool executes a program in the GitHub repo for code deployment. Jenkins calls the python program python_client_redshift_ephemeral.py, it reads two config (.ini) files. First file,dw_config.ini contains cluster configuration. Second file, query_redshift_api.ini contains the SQL (DDL/DML/stored procedure) to be executed. 
+# Running the Redshift pipeline 
 
-You can see how all of these works together by doing the following steps:
+Jenkins builds a container with specifications provided in the docker
+file. Jenkins then executes a docker run command, this invokes the
+python program python_client_redshift_ephemeral.py, which reads two
+config (.ini) files.
 
-### Clone the GitHub Repository
-The AWS CloudFormation template and the source code for the example application can be found here: https://github.com/aws-samples/devops-redshift.git . Before you get started, you need to clone the repository using the following command:
+The first file, dw_config.ini, contains configuration for Redshift
+cluster to be created . The second file, query_redshift_api.ini contains
+the SQL (DDL/DML/stored procedure) to be executed.
 
-`git clone https://github.com/aws-samples/devops-redshift.git`
+You can see how all of these works together by doing the following
+steps:
 
-This will create a new folder, redshift_devops, with the files inside. 
+## 1. Clone the GitHub Repository
 
-### Deploy CloudFormation Template
-Go to the CloudFormation console and click "Create Stack" then choose "With new resources (standard)". 
+The AWS CloudFormation template and the source code for the example
+application can be found here:
+<https://github.com/aws-samples/devops-redshift.git> . Before you get
+started, you need to clone the repository using the following command:
 
-Once you're in the "Create stack" page, choose "Upload a template file" and then "Choose file". The file should be in `<cloned_directory>/cloudformation_Redshift_devops.yml`. After you select the file, your screen should look like the following:
+git clone <https://github.com/aws-samples/devops-redshift.git>
 
-![Deploy Step 1](doc-images/stack_step1.png)
+This will create a new folder, redshift_devops, with the files inside.
 
-Click "Next" and complete the following parameters:
--	Stack name – we will use `RedshiftDevOps`
--	DataBucketName – S3 bucket name
--	Key – Your pem key to connect to ec2 instance.
--	Master user name
--	Master password for both test and prod Amazon Redshift clusters. The password has the following criteria:
-    * Must be 8-64 characters.
-    * Must contain at least one uppercase letter.
-    * Must contain at least one lowercase letter.
-    * Must contain at least one number.
-    * Can only contain ASCII characters (ASCII codes 33-126), except ' (single quotation mark), " (double quotation mark), /, \, or @.
--	Redshift node count (default:dsc2 – 1 node) 
--	Your public IP
+## 2. Deploy CloudFormation Template
 
-![Deploy Step 2](doc-images/stack_step2.png)
+Go to the CloudFormation console and click \"Create Stack,\" then choose
+\"With new resources (standard).\"
 
-Click "Next"
+Once you\'re on the \"Create stack\" page, choose \"Upload a template
+file\" and then \"Choose file.\" The file should be in
+\<cloned_directory\>/cloudformation_Redshift_devops.yml. After you
+select the file, your screen should look like the following:
 
-![Deploy Step 3](doc-images/stack_step3.png)
+![](images/media/image2.png){width="6.263888888888889in"
+height="3.4902777777777776in"}
 
-We can leave everything as is in this page and click "Next".
+Click \"Next\" and complete the following parameters:
 
-![Deploy Step 4](doc-images/stack_step4.png)
+-   Stack name -- we will use RedshiftDevOps
 
-Lastly, scroll to the bottom of the page and check the acknowledgement and click "Create stack". The stack will create the VPC, Amazon Redshift clusters, ec2 instance, deploy a container on ec2 running Jenkins.
+-   DataBucketName -- S3 bucket name
 
-Click the refresh button on the top right corner to track the progress of the stack creation.
+-   Key -- Your pem key to connect to ec2 instance.
 
-![Deploy Step 5](doc-images/stack_step5.png)
+-   Master user name
 
-1. Connect to ec2 instance and verify docker container is running. 
+-   Master password for both test and prod Amazon Redshift clusters. The
+    password has the following criteria:
 
-    Use SSH to log on to ec2 instance using the .pem file selected in cloud formation.
+    -   Must be 8-64 characters.
 
-    Once logged on to ec2 instance run the command:
-    
-    `docker ps -a`
+    -   Must contain at least one uppercase letter.
 
-    ![Deploy Step 6](doc-images/stack_step6.png)
+    -   Must contain at least one lowercase letter.
 
-    myjenkins docker container is deployed mapping ec2 host folders with myjenkins container. This will preserve the state of Jenkins application (metadata, jobs etc.) even though container exits. If the container were to be re-started, configurations will not be lost.
-      
-    If the container exits for any reason, execute the following command on the terminal:
+    -   Must contain at least one number.
 
-    `docker run -d -p 8080:8080 --name myjenkins -v /var/run/docker.sock:/var/run/docker.sock -v jenkins_home:/var/jenkins_home -v jenkins_downloads:/var/jenkins_home/downloads jenkins/jenkins:lts`
+    -   Can only contain ASCII characters (ASCII codes 33-126), except\'
+        (single quotation mark),\" (double quotation mark), /, \\, or @.
 
-2. Once done, log on to Jenkins ec2url+jenkinsport
-    
-    Copy the URL and paste in a web browser (chrome, firefox recommended). Please note the URL will be unique to you and will be public ec2 instance name deployed by CFN. Port 8080 is used for web traffic.
+-   Redshift node count (default:dsc2 -- 1 node)
 
-    http://`ec2-34-239-162-89.compute-1.amazonaws.com`:8080/
+-   Your public IP
 
-    Log on to ec2 console and check the ec2 instance name entitled Jenkins Server
+![](images/media/image3.png){width="6.263888888888889in"
+height="6.715277777777778in"}
 
-    ![Deploy Step 7](doc-images/stack_step7.png)
+Click \"Next\"
 
-3. A screen asking for administrator password will be displayed.
+![](images/media/image4.png){width="6.263888888888889in"
+height="5.59375in"}
 
-    ![Deploy Step 8](doc-images/stack_step8.png)
+We can leave everything as is on this page and click \"Next.\"
 
-    Log on to the Jenkins container using the command 
+![](images/media/image5.png){width="6.263888888888889in"
+height="1.5722222222222222in"}
 
-    `docker exec -it myjenkins /bin/bash`
+Lastly, scroll to the bottom of the page, check the acknowledgment, and
+click \"Create stack.\" The stack will create the VPC, Amazon Redshift
+clusters, ec2 instance deploy a container on ec2 running Jenkins.
 
-    Once inside the container shell, execute the command:
+Click the refresh button on the top right corner to track the progress
+of the stack creation.
 
-    `cat /var/lib/jenkins/secrets/initialAdminPassword`
+![](images/media/image6.png){width="6.263888888888889in"
+height="3.2006944444444443in"}
 
-4. The simplest and most common way of installing plugins is through the **Manage Jenkins > Manage Plugins**. Click **Available** to view all the Jenkins plugin that can be installed. Using the search box, search for **Docker Plugin**. Select **Docker,Docker API Plugin,Docker Pipeline,docker-build-step**
+3\. Connect to ec2 instance and verify docker container is running.
 
-    ![Deploy Step 9](doc-images/stack_step9.png)
+> Use SSH to log on to the ec2 instance using the .pem file selected in
+> cloud formation.
+>
+> Once logged on to ec2 instance, run the command:
+>
+> docker ps -a
+>
+> ![](images/media/image7.png){width="6.518073053368329in"
+> height="1.074481627296588in"}
+>
+> myjenkins docker container is deployed mapping ec2 host folders with
+> myjenkins container. This will preserve the state of the Jenkins
+> application (metadata, jobs, etc.) even though the container exits. If
+> the container were to be re-started, configurations would not be lost.
 
-5. Adding security credentials within Jenkins.
-    
-    Next, we will add credentials for accessing docker, github and AWS account. Click 
-    Dashboard> Manage Jenkins> Manage Credentials > Jenkins (stores scoped t Jenkins)
+If the container exits for any reason, execute the following command on
+the terminal:
 
-    ![Deploy Step 10](doc-images/stack_step10.png)
-
-    Click Add credential, create an id (you can create a custom id or you could use the default guid provided by Jenkins).
-
-    ![Deploy Step 11](doc-images/stack_step11.png)
-
-    On the “Kind” drop down box, select GithubApp define username and password click ok. Repeat the same process, for Docker. Select kind as secret text and then add, AWS secret.
-
-6. Jenkins 2.0 allows creation of pipeline as code, as essential part of continuous delivery (CD). Declarative pipeline is groovy based, having a programming language to build pipelines avoids runtime issues with the build script. 
-
-    On the left pane select New Item>Pipeline> "Redshift_declarative_pipeline" as the name of declarative pipeline.
-
-    ![Deploy Step 12](doc-images/stack_step12.png)
-
-    Provide a description for the pipeline. Select a build trigger, we will like to create a based on changes made to the git repo. Click the check box "GitHub hook trigger for GITScm polling".
-
-    ![Deploy Step 13](doc-images/stack_step13.png)
-
-    In the Advanced Project Options. For pipeline definition drop down select "Pipeline script from SCM". Select Git as SCM and provide the repository URL for github repo. For credentials select Github credentials added. Script path will look for the file to be used for declarative pipeline, type in name as Jenkinsfile. Click Save.
-
-    ![Deploy Step 14](doc-images/stack_step14.png)
-
-7. We will implement another version of pipeline by using Jenkins scripted pipeline option. You can decide to run either Declarative or scripted pipeline. Declarative pipelines are preferred as they allow pipeline to be managed as code.
-
-    To begin, navigate to Jenkins homepage and on the left pane, select New Item>Pipeline> "redshift_devops_scripted_pipeline" as the name of scripted pipeline.
-
-    In the advance project option, select “pipeline script” as definition. Copy contents from Jenkins_scripted_pipeline.txt into the script section. In the script, replace variable name – DOCKERRPONAME with the docker repo created and YOURDOCKERLOGON with your docker in login name. 
-
-    Also, note that AWS_DEFAULT_REGION is set as 'us-west-2'. You can modify the region based on your preference.
-
-    After changes have been made, click save and apply.
-
-    ![Deploy Step 15](doc-images/stack_step15.png)
-
-8. Navigate to your git account containing cloned devops-redshift repository and click settings. Click webhooks on the left had side pane, it should open the manage webhook window. In the payload URL, put in the Jenkins URL with /github-wehook/ URI path. 
-
-    http://`ec2-34-239-162-89.compute-1.amazonaws.com`:8080/github-webhook/
-
-    ![Deploy Step 16](doc-images/stack_step16.png)
-
-    This webhook notifies Jenkins to trigger a build when there are any changes to the GitHub repository.
-
-9. Copy and paste the below lines in the query_redshift_api.ini file 
-
-    [DDL_v08]
-
-    query6 = create table test_table_service (col1 varchar(10), col2 varchar(20));
-
-    And commit the changes. 
-10. Git will send an event to the Jenkins server to start the build. If all works, you should see the Jenkins job automatically triggered at this point. 
-
-11. Once the Jenkins job has been completed you should have the container running. To check the container, navigate to terminal and run docker ps -a you should see a container rs_containerv1 running.
-
-    ![Deploy Step 17](doc-images/stack_step17.png)
-
-12. To verify the steps executed by the docker container , check the logs. Run
-
-    `docker logs rs_containerv1 -f`
-
-    to see the log lines getting generated.
-
-13.	The process will execute test cases and print results of assertions for values specified in the results section. 
-
-14.	Finally, log on to console -> Redshift -> clusters and you will a new cluster based on the cluster name provided in the clusterconfig.ini file. 
-
-15.	Once all the execution steps are completed, container will show a status of EXITED(0).
-
-    ![Deploy Step 18](doc-images/stack_step18.png)
+> *docker run -d -p 8080:8080 \--name myjenkins -v
+> /var/run/docker.sock:/var/run/docker.sock -v
+> jenkins_home:/var/jenkins_home -v
+> jenkins_downloads:/var/jenkins_home/downloads jenkins/jenkins:lts*
+
+4\. Once done, log on to Jenkins ec2url+jenkinsport
+
+> Copy the URL and paste it into a web browser (chrome, firefox
+> recommended). Please note that the URL will be unique to you and a
+> public ec2 instance name deployed by CFN. Port 8080 is used for web
+> traffic.
+>
+> [http://ec2-34-239-162-89.compute-1.amazonaws.com:]{.underline}8080/
+
+A screen asking for the administrator password will be displayed.
+
+![](images/media/image8.png){width="6.9065146544181975in"
+height="3.7664238845144355in"}
+
+Log on to the Jenkins container from terminal using the command
+
+*docker exec -it myjenkins /bin/bash*
+
+Once inside the container shell, execute the command:
+
+*cat /var/lib/jenkins/secrets/initialAdminPassword*
+
+5\. The simplest and most common way of installing plugins is through
+the **Manage Jenkins** \> **Manage Plugins**. Click **Available** to
+view all the Jenkins plugins that can be installed. Using the search
+box, search for **Docker Plugin**. Select **Docker, Docker API Plugin,
+Docker Pipeline,docker-build-step**
+
+![](images/media/image9.png){width="6.263888888888889in"
+height="2.046527777777778in"}
+
+6\. We are adding security credentials within Jenkins.
+
+Next, we will add credentials for accessing Docker, GitHub, and AWS
+accounts. Click
+
+Dashboard\> Manage Jenkins\> Manage Credentials \> Jenkins (stores
+secrets)
+
+![](images/media/image10.png){width="6.263888888888889in"
+height="2.828472222222222in"}
+
+Click Add credential, create an id (you can create a custom id, or you
+could use the
+
+default guide provided by Jenkins).
+
+![](images/media/image11.png){width="5.545286526684165in"
+height="3.0237226596675417in"}
+
+On the \"Kind\" drop-down box, select GithubApp define username and
+password click
+
+> ok. Repeat the same process for Docker. Select kind as secret text and
+> then add AWS secret.
+>
+> 7\. Jenkins 2.0 allows pipeline creation as code, as an essential part
+> of continuous delivery (CD). The declarative pipeline is groovy-based;
+> having a programming language to build pipelines avoids runtime issues
+> with the build script.
+
+On the left pane, select New Item\>Pipeline\>
+\"Redshift_declarative_pipeline\" as the name of the declarative
+pipeline.
+
+![](images/media/image12.png){width="6.263888888888889in"
+height="4.248611111111111in"}
+
+> Describe the pipeline. Select a build trigger; we would like to create
+> a based on changes made to the git repo. Click the check box \"GitHub
+> hook trigger for GITScm polling.\"
+>
+> ![](images/media/image13.png){width="6.263888888888889in"
+> height="3.329861111111111in"}
+>
+> In the Advanced Project Options. For pipeline definition drop-down,
+> select \"Pipeline script from SCM.\" Script path will look for the
+> file to be used for declarative pipeline, type in the name as
+> Jenkinsfile. Select Git as SCM and provide the repository URL for the
+> Github repo. For credentials, select Github credentials added. Click
+> Save.
+>
+> ![](images/media/image14.png){width="6.263888888888889in"
+> height="4.919444444444444in"}
+>
+> 8\. You can decide to run either a Declarative or scripted pipeline.
+> Declarative pipelines are preferred as they allow the pipeline to be
+> managed as code. In this step we show, how to implement a scripted
+> pipeline.
+
+To begin, navigate to Jenkins homepage, and on the left pane, select New
+Item\>Pipeline\> \"redshift_devops_scripted_pipeline\" as the name of
+the scripted pipeline.
+
+> Select \"pipeline script\" as a definition in the advance project
+> option. Copy contents from Jenkins_scripted_pipeline.txt into the
+> script section. In the script, replace variable name -- DOCKERRPONAME
+> with the docker repo created and YOURDOCKERLOGON with your Docker in
+> the login name.
+>
+> Also, note that AWS_DEFAULT_REGION is set as \'us-west-2\'. You can
+> modify the region based on your preference.
+>
+> After changes have been made, click save and apply.
+>
+> ![](images/media/image15.png){width="6.263888888888889in"
+> height="3.5791666666666666in"}
+>
+> 9\. Navigate to your git account containing cloned DevOps-redshift
+> repository and click settings. Click webhooks on the left-hand side
+> pane; it should open the manage webhook window. Put the Jenkins URL
+> with the/GitHub-webhook/ URI path in the payload URL.
+>
+> <http://ec2-34-239-162-89.compute-1.amazonaws.com:8080/github-webhook/>
+>
+> ![](images/media/image16.png){width="6.263888888888889in"
+> height="3.6465277777777776in"}
+>
+> This webhook notifies Jenkins to trigger a build when changes are
+> committed to the GitHub repository.
+>
+> 10\. Copy and paste the below lines in the query_redshift_api.ini file
+>
+> \[DDL_v08\]\
+> query6 = create table test_table_service (col1 varchar(10), col2
+> varchar(20));
+>
+> And commit the changes.
+>
+> 11\. Git will send an event to the Jenkins server to start the build.
+> If all works, you should
+>
+> see the Jenkins job automatically triggered at this point.
+>
+> 12\. Once the Jenkins job has been completed, you should have the
+> container running.
+>
+> Navigate to the terminal and run docker ps -a to check the container.
+> You should see
+>
+> a container rs_containerv1 running.
+
+![](images/media/image17.png){width="6.263888888888889in"
+height="2.203472222222222in"}
+
+> 13\. To verify the steps executed by the docker container, check the
+> logs. Run,
+
+*docker logs rs_containerv1 -f*
+
+to see the log lines getting generated.
+
+> 14\. The process will execute test cases, and print assertions result
+> for values specified in
+>
+> the results section.
+>
+> 15\. Finally, log on to console Redshift clusters and you will a new
+> cluster based on
+>
+> the cluster name provided in the clusterconfig.ini file.
+>
+> 16\. Once all the execution steps are completed, container will show a
+> status of
+>
+> EXITED(0). You do not need to remove the stopped container, Jenkins
+> pipeline
+>
+> automatically does that when starting.
+
+![](images/media/image18.png){width="6.263888888888889in"
+height="0.8069444444444445in"}
 
 ## Redshift CI/CD using AWS services 
 
-In this section we will implement the same CI/CD pipeline we reviewed, but will use AWS CI/CD services components. Below are the component details:
+This is the second model for enabling CI/CD on Redshift using AWS
+managed services like Code Commit, Code Build and Code Deploy.
+
+![](images/media/image19.png){width="6.263888888888889in"
+height="3.1368055555555556in"}
+
+Event Flow
+
+1.  A developer adds/modifies DDL/DML scripts in configuration files and
+    commits changes into AWS code commit .
+
+2.  AWS code commit triggers off a code build using configuration
+    specified in buildspec.yml. The build happens based on pre_build,
+    build and post_build command.
+
+3.  AWS code builds the container image and pushes it to AWS code
+    deploy.
+
+4.  Code deploy pushes the container image to Elastic container Registry
+    (ECR) repository.
+
+5.  EKS cluster picks up the container image , reads configuration in s3
+    bucket to determine execution step, connects with Redshift cluster
+    and executes DDL/DML code.
+
+6.  Code gets deployed in Redshift cluster environment, task completes
+    and the deployment service waits for another change to DDL/DML
+    script.
+
+This section will implement the same CI/CD pipeline we reviewed but will
+use AWS CI/CD services components. Below are the component details:
+
++-----------------+----------------------------------------------------+
+| [AWS            | This is the version control system where you will  |
+| Co              | be storing your code.                              |
+| deCommit](https |                                                    |
+| ://aws.amazon.c |                                                    |
+| om/codecommit/) |                                                    |
++-----------------+----------------------------------------------------+
+| [AWS            | This service will build and start the containers   |
+| CodeBuild](http | to create environment and runtime components for   |
+| s://aws.amazon. | code execution. The file \"buildspec.yml \"is used |
+| com/codebuild/) | to build the container image                       |
+|                 |                                                    |
+|                 | -   **Prebuild:** Logs on to private repository on |
+|                 |     AWS ECR (Elastic Container Repository), builds |
+|                 |     an image based on the docker file specified.   |
+|                 |                                                    |
+|                 | -   **Build:** A base image of ubuntu 18.04 is     |
+|                 |     pulled from the docker hub, Linux packages,    |
+|                 |     python 3.7, AWS CLI are installed, and code    |
+|                 |     from the repo is copied to the src directory   |
+|                 |     of the container.                              |
+|                 |                                                    |
+|                 | -   **Post-build:** Docker image is pushed to the  |
+|                 |     ECR repository and tagged as the latest image. |
++-----------------+----------------------------------------------------+
+| AWS ECS         | A cluster is created using the AWS ECS service. A  |
+|                 | task to deploy DDL runs as a service to deploy the |
+|                 | DDL/DML and execute test cases. The task picks up  |
+|                 | the latest image created by CodeBuild to deploy    |
+|                 | the changes.                                       |
++-----------------+----------------------------------------------------+
+| [AWS            | Responsible for the overall orchestration from     |
+| CodePi          | source to Redshift cluster deployment              |
+| peline](https:/ |                                                    |
+| /aws.amazon.com |                                                    |
+| /codepipeline/) |                                                    |
++-----------------+----------------------------------------------------+
 
-| Service Name              | Description |
-| ------------------------- | ------------------------------------------ |
-| [AWS CodeCommit](https://aws.amazon.com/codecommit/)        | This is the version control system where you will be storing your code       |
-| [AWS CodeBuild](https://aws.amazon.com/codebuild/)        | This service will be used to build the containers to build runtime components for code execution. The file `buildspec.yml` is used to build the container image <br/> - Prebuild: Logs on to private repository on AWS ECR (Elastic Container Repository), builds an image based on the docker file specified. <br/> - Build: A base image of ubuntu 18.04 is pulled from docker hub, Linux packages, python 3.7 , aws cli are installed and code from repo is copied to the src directory of the container. <br/> - Postbuild: Docker image is pushed to the ECR repository and tagged as the latest image.|
-| [AWS ECS](https://aws.amazon.com/ecs/)               | A cluster is created using the AWS ECS service. A task to deploy DDL runs as a service to deploy the DDL/DML and execute test cases.  The task picks up the latest image created by CodeBuild to deploy the changes. |
-| [AWS CodePipeline](https://aws.amazon.com/codepipeline/)      | Responsible for the overall orchestration from source to Redshift cluster deployment |
+As you can tell from the description of the different components above,
+we\'re also using some additional dependencies at the code level; these
+are as follows:
 
-As you can tell from the description of the different components above, we're also using some additional dependencies at the code level, these are as follows:
+  ------------------ ----------------------------------------------------
+  Pyunit             The open-source testing framework used to execute
+                     test cases against the changes that have been
+                     deployed on the Redshift cluster.
 
-| Name              | Description |
-| ------------------------- | ------------------------------------------ |
-| Pyunit | Open source testing framework used to execute test cases against the changes that have been deployed on the Redshift cluster.  |
+  ------------------ ----------------------------------------------------
 
-In the succeeding sections, we would be diving deeper into how all of these integrate together.
+In the succeeding sections, we will be diving deeper into how all of
+these integrate.
 
-### Push Code to the CodeCommit Repository
+## Push Code to the CodeCommit Repository
 
-We will create a new repository redshift_devops. Navigate to AWS console> codebuild>create repository and provide the name and description on the create repository form. 
+We will create a new repository, redshift_devops. Navigate to AWS
+console\> codebuild\>create a repository and provide the name and
+description on the create repository form.
 
-![Deploy Step 19](doc-images/stack_step19.png)
+![](images/media/image20.png){width="3.919708005249344in"
+height="3.20244094488189in"}
 
-Before you can push any code into this repo you have to setup your Git credentials, follow the steps outlined in the CodeCommit [documentation](https://docs.aws.amazon.com/codecommit/latest/userguide/setting-up-gc.html) on how to do this. Once you reached Step 4, copy the HTTPS URL, and instead of cloning, we would be adding the CodeCommit repo URL into the code that we cloned earlier by doing the following steps:
+Before you can push any code into this repo, you have to set up your Git
+credentials follow the steps outlined in the [CodeCommit
+documentation](https://docs.aws.amazon.com/codecommit/latest/userguide/setting-up-gc.html)
+on how to do this. Once you reach Step 4, copy the HTTPS URL, and
+instead of cloning, we would be adding the CodeCommit repo URL into the
+code that we cloned earlier by doing the following steps:
 
-`git remote add codecommit <repo_https_url> `
+git remote add code commit \<repo_https_url\>
 
-`git push codecommit main`
+git push code commit main
 
-The last step will populate the repository and you can confirm it by refreshing the CodeCommit console. If you get prompted for username and password, input the Git credentials that you generated and downloaded from Step 3.
+The last step will populate the repository, and you can confirm it by
+refreshing the CodeCommit console. If you get prompted for username and
+password, input the Git credentials you generated and downloaded from
+Step 3.
 
-### AWS CodeBuild
+## 
 
-Navigate to AWS console> CodeBuild and select create build project. Providing the following details:
+## AWS CodeBuild
 
-1. Project name as redshiftdevops. 
+Navigate to AWS console\> CodeBuild and select create build project.
 
-2. Description of the build project. 
+1.  Project name as redshiftdevops.
 
-![Deploy Step 20](doc-images/stack_step20.png)
+2.  Description of the build project. Providing the following details:
 
-3. Source – on the drop down select AWS CodeCommit
-    <br/> Name of the repository should be auto-populated, select the CodeBuild repository created in the previous step. Select the branch as master
+> ![](images/media/image21.png){width="6.263888888888889in"
+> height="4.554861111111111in"}
 
-![Deploy Step 21](doc-images/stack_step21.png)
+3.  Source -- on the drop-down, select AWS CodeCommit
 
-4. Environment Image – select managed image
-    <br/> Operating system as Ubuntu or Amazon Linux 2
-    <br/> Runtime – standard
+The repository\'s name should be auto-populated; select the CodeBuild
+repository created in the previous step. Select the branch as master
 
-![Deploy Step 22](doc-images/stack_step22.png)
+![](images/media/image22.png){width="6.263888888888889in"
+height="5.3590277777777775in"}
 
-5. Service role – You can either chose to create a new service role or choose an existing service role you might have created. For IAM policy details please refer to [link](https://docs.aws.amazon.com/codebuild/latest/userguide/setting-up.html)
+4.  Environment Image -- select managed image
 
-6. Buildspec file – AWS CodeBuild uses the buildspec.yml file to perform the pre-build, build and post-build steps. This file must be defined in the root directory of CodeCommit repo.  You can also define a custom name and location of the buildspec.yml file and provide the details. 
+The operating system as Ubuntu or Amazon Linux 2
 
-![Deploy Step 23](doc-images/stack_step23.png)
+Runtime -- standard
 
-7.	Artifacts – we will not be generating any artifacts, but will be uploading the container image directly to ECR. Select the Type as No artifacts
+![](images/media/image23.png){width="6.263888888888889in"
+height="1.5305555555555554in"}
 
-![Deploy Step 24](doc-images/stack_step24.png)
+5.  Service role -- You can either create a new service role or select
+    an existing service role you might have created. For IAM policy
+    details, please refer to the
+    [link](https://docs.aws.amazon.com/codebuild/latest/userguide/setting-up.html)
 
-8. Logs – Add a group name and stream name to capture the logs.
+6.  BuildSpec file -- AWS CodeBuild uses the buildspec.yml file to
+    perform the prebuild, buil,d and post-build steps. This file must be
+    defined in the root directory of the CodeCommit repo. You can also
+    define a custom name and location of the buildspec.yml file and
+    provide the details.
 
-![Deploy Step 25](doc-images/stack_step25.png)
+![](images/media/image24.png){width="6.263888888888889in"
+height="2.8180555555555555in"}
 
-Once all the details have been provided click the "create build project button"
+7.  Artifacts -- we will not generate any artifacts but upload the
+    container image directly to ECR. Select the Type as No artifacts.
 
+![](images/media/image25.png){width="6.263888888888889in"
+height="3.323611111111111in"}
 
-### AWS Elastic Container Registry (ECR)
+8.  Logs -- Add a group name and stream name to capture the logs.
 
-In the next step, we will create a private ECR repo to host the build image create by AWS Build service.Navigate to ECR , AWS console > ECR.
+> ![](images/media/image26.png){width="6.263888888888889in"
+> height="3.395138888888889in"}
 
-Click create repository, select the privacy setting as private and provide a repository name. 
+Once all the details have been provided, click the \"create build
+project button.\"
 
-![Deploy Step 26](doc-images/stack_step26.png)
+## AWS Elastic Container Registry(ECR)
 
-Please note that once a ECR repository has been created visibility settings cannot be changed. 
+In the next step, we will create a private ECR repo to host the build
+image created by the AWS Build service. Navigate to ECRAWS console \>
+ECR.
 
+Click create a repository, select the privacy setting as private and
+provide a repository name.
 
-### AWS Elastic Container Service (ECS)
+![](images/media/image27.png){width="6.263888888888889in"
+height="4.549305555555556in"}
 
-From AWS console navigate to ECS (Elastic container service). Click create cluster and select the option as “Networking only”, as we will be using AWS Fargate to create and manage our cluster service. Click next, provide cluster name and click create.
+Please note that visibility settings cannot be changed once an ECR
+repository has been created.
 
-![Deploy Step 27](doc-images/stack_step27.png)
+## AWS Elastic Container Service (ECS)
 
-On the left hand pane, select Task Definitions, click create a new task definition. On Launch type compatibility select FARGATE and click next. This will present task and container definition screen. Provide the following details:
-1.	Task definition name – Task name 
-2.	Task role – The drop down should provide ecsTaskExecutionRole
-3.	Operating system family - Linux
-4.	Task execution role – ecsTaskExecutionRole
-5.	Task memory – 2 GB 
-6.	Task vCPU – 1 vCPU
+From the AWS console, navigate to ECS (Elastic container service). Click
+create cluster and select the option as \"Networking only,\" as we will
+be using AWS Fargate to create and manage our cluster service. Click
+next, provide cluster name and click create.
 
-![Deploy Step 28](doc-images/stack_step28.png)
+![](images/media/image28.png){width="6.263888888888889in"
+height="5.513194444444444in"}
 
-7.	Click Add Container and it would present a new screen:
-    -   Container name – Name of the container running the deployment pipeline
-    -   Image – URI of the private ECS repo created
-        <br/>`AWSACCOUNTNUMBER.dkr.ecr.us-east-1.amazonaws.com/redshiftdevops:redshiftdevops`
+Select Task Definitions click to create a new task definition on the
+left-hand pane. On Launch type compatibility, select FARGATE and click
+next. This will present the task and container definition screen.
+Provide the following details:
 
-        ![Deploy Step 29](doc-images/stack_step29.png)
-    -   CPU Units - 1
-    -   Environment – Paste the following command:
-        <br/> `python3,python_client_redshift_ephemeral.py,rollforward,query_redshift_api.ini,ALL,ALL,s,dw_config.ini,DEV`
+1.  Task definition name -- Task name
 
-        ![Deploy Step 30](doc-images/stack_step30.png)
-Leave the other parameter as blank and click create. This step completes the ECS cluster and task definition needed to deploy changes to Redshift database. 
+2.  Task role -- The dropdown should provide ecsTaskExecutionRole
 
-8.	Select Task definitions on the left hand pane, select task created, click actions and select deploy as a service.
+3.  Operating system family - Linux
 
-![Deploy Step 31](doc-images/stack_step31.png)
+4.  Task execution role -- ecsTaskExecutionRole
 
-This step created the task as a continuous service, which picks up changes and deploys them to the Redshift cluster. 
+5.  Task memory -- 2 GB
 
+6.  Task vCPU -- 1 vCPU
 
-### AWS CodePipeline
+![](images/media/image29.png){width="6.263888888888889in"
+height="2.1590277777777778in"}
 
-To bring all of these components together, we will be using CodePipeline to orchestrate the flow from source code until code deployment. There are some additional capabilities you can do with CodePipeline. For example, you can add an [Approval step](https://docs.aws.amazon.com/codepipeline/latest/userguide/approvals-action-add.html) after a code change is made for someone to review the code change and perform a build and deploy.
+7.  Click Add Container, and it would present a new screen:
 
-Navigate to CodePipeline from the console and click create pipeline. Our Pipeline will consist of two stages Add source stage and Add build stage. Provide a pipeline name and chose an existing or new IAM service to deploy the change. Click Next 
+    a.  Container name -- Name of the container running the deployment
+        pipeline
 
-![Deploy Step 32](doc-images/stack_step32.png)
+    b.  Image -- URI of the private ECS repo created
 
-Click Next and select source provider ad AWS CodeCommit. Select repository name from the drop down and Branch name as master.
+> *AWSACCOUNTNUMBER.dkr.ecr.us-east-1.amazonaws.com/redshiftdevops:redshiftdevops*
 
-![Deploy Step 33](doc-images/stack_step33.png)
+![](images/media/image30.png){width="5.432071303587052in"
+height="2.852905730533683in"}
 
-Add the build stage, by selecting code provider as AWS CodeBuild, Region and Project name. Select Build type as Single Build. Click Next and click skip deploy stage.
+c.  CPU Units - 1
 
-Review the changes and click create pipeline, this should create the pipeline needed.
+d.  Environment -- Paste the following command:
 
+> *python3,python_client_redshift_ephemeral.py,rollforward,query_redshift_api.ini,ALL,ALL,s,dw_config.ini,
+> DEV*
 
-### Example Scenario
+![](images/media/image31.png){width="4.627933070866142in"
+height="2.8008737970253716in"}
 
-Let’s take an example scenario, we would add two new queries in the redshift_query.ini file to execute on existing Redshift cluster. Copy the below lines towards the end of the file.
+Leave the other parameter as blank and click create. This step completes
+the ECS cluster and task definition needed to deploy changes to the
+Redshift database.
 
-`[DDL_v08]`
+8.  Select Task definitions on the left-hand pane, check box task
+    created, click actions, and select deploy as a service.
 
-`query6 = create table test_table_service(col1 varchar(10), col2 varchar(20));`
+![](images/media/image32.png){width="6.263888888888889in"
+height="2.348611111111111in"}
 
-We will need to commit the changes by running the following commands on terminal.
+This step created the task as a continuous service, which picks up
+changes and deploys them to the Redshift cluster.
 
-`git add .`
+## AWS CodePipeline
 
-`git commit -m "changes to query.ini file"`
+To bring all of these components together, we will be using CodePipeline
+to orchestrate the flow from source code until code deployment. There
+are some additional capabilities you can do with CodePipeline. For
+example, you can add an [Approval
+step](https://docs.aws.amazon.com/codepipeline/latest/userguide/approvals-action-add.html)
+after a code change is made for someone to review and perform a build
+and deploy.
 
-`git push`
+Navigate to CodePipeline from the console and click create the pipeline.
+Our pipeline will consist of the Add source stage and Add build stage.
+Provide a pipeline name and choose an existing or new IAM service to
+deploy the change. Click Next
 
-This should push the changes to the CodeCommit repository. AWS code pipeline will trigger build job , create the docker image and push it to AWS ECR.
+![](images/media/image33.png){width="6.263888888888889in"
+height="2.863888888888889in"}
 
-![Deploy Step 34](doc-images/stack_step34.png)
+Click Next and select source provider ad AWS CodeCommit. Select
+repository name from the drop-down and Branch name as master.
 
-ECS service picks up all the changes and deploys it to Redshift, and the table gets created. 
+# ![](images/media/image34.png){width="2.319377734033246in" height="1.990498687664042in"}
 
+Add the build stage by selecting code provider as AWS CodeBuild, Region,
+and Project name. Select Build type as Single Build. Click Next and
+click skip deploy stage.
 
-## Conclusion
+Review the changes and click create a pipeline; this should create the
+pipeline needed.
 
-Using CI/CD principles in the context of Amazon Redshift stored procedures and schema changes improves reliability and repeatability of change management process. Running test cases validates database changes are providing expected output like application code. If the test cases fail, changes can be backed out with a simple rollback command. 
+# Example Scenario
 
-In addition, versioning migrations enables consistency across multiple environments and prevents issues arising from schema changes that are not applied properly. This increases confidence when changes are being made and improves development velocity as teams spend more time developing functionality rather than hunting for issues due to environment inconsistencies. 
+Let\'s take an example scenario; we would add two new queries in the
+redshift_query.ini file to execute on the existing Redshift cluster.
+Copy the below lines towards the end of the file.
 
+**\[DDL_v08\]\
+query6** = **create table test_table_service(col1 varchar(10), col2
+varchar(20));**
 
-## Security
+We will need to commit the changes by running the following commands on
+terminal.
 
-See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
+git add .
 
-## License
+git commit -m \"changes to query.ini file.\"
 
-This library is licensed under the MIT-0 License. See the [LICENSE](LICENSE) file.
+git push
+
+This should push the changes to the CodeCommit repository. AWS code
+pipeline will trigger build job, create the docker image and push it to
+AWS ECR.
+
+![](images/media/image35.png){width="6.263888888888889in"
+height="2.8041666666666667in"}
+
+ECS service picks up all the changes and deploys them to Redshift, and
+the table gets created.
+
+# Conclusion
+
+Using CI/CD principles in the context of Amazon Redshift stored
+procedures, and schema changes improves the reliability and
+repeatability of the change management process. Running test cases
+validates database changes are providing expected output like
+application code. If the test cases fail, changes can be backed out with
+a simple rollback command.
+
+In addition, versioning migrations enable consistency across multiple
+environments and prevent issues arising from schema changes that are not
+appropriately applied. This increases confidence when changes are made
+and improves development velocity as teams spend more time developing
+functionality rather than hunting for issues due to environmental
+inconsistencies.
