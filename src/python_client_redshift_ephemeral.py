@@ -14,10 +14,11 @@ import boto3
 import uuid
 import copy, json
 import re
-import unittest
+
 # file_dir = os.path.dirname(__file__)
 # sys.path.append(file_dir)
 from RedshiftEphemeral import RedshiftEphemeral
+from botocore.exceptions import ClientError
 
 USAGE = f"Usage: python {sys.argv[0]} [--help] | operation configfile section_name query_id output clusterconfigfile clusterconfigparm\n\n" \
         f"operation: rollforward or rollback\n" \
@@ -45,8 +46,7 @@ exec_pointer,val_l,val = [],[],[]
 
 
 s3 = boto3.resource('s3')
-#configuration
-s3_bucket = 'jeetesh-redshiftdevops-cendelete'
+s3_bucket = 'jeetesh-redshiftdevops-cendelete' # your s3 bucket name
 execution_pointer_path_name='exec_pointer/exec_pointer.json'
 test_pointer_path_name='test_ini/test_pointer.json'
 
@@ -67,6 +67,7 @@ def validate(args: List[str]):
         try:
             arguments = Arguments(*args)
         except TypeError:
+            print('Executed successfully')
             raise SystemExit(USAGE)
     else:
         raise SystemExit(USAGE)
@@ -252,52 +253,6 @@ def return_formed_query(operation=None,config_file_name=None,section_name=None,q
     return val,pointer
 
 
-# def read_config_file(config_file_name):
-#     config.read(config_file_name)
-#     dict_x = {}  # empty dictionary
-#     try:
-#         for section in config.sections():
-#             dict_x[section] ={} # add a new section for the dictionary
-#             for key, val in config.items(section):
-#                 dict_x[section][key] = val
-#     except Exception as e:
-#         print(e)
-#     #print(dict_x)
-#     return dict_x
-#
-# # return formatted query for execution
-# def return_formed_query(operation=None,config_file_name=None,section_name=None,query_id=None,output=None,clusterconfigfile=None,clusterconfigparm=None):
-#     dict_parsed = read_config_file(config_file_name)
-#     #print(dict_parsed)
-#     #val = []
-#     if query_id != None: query_id = query_id.lower() #convert to lower case
-#     try:
-#         if operation == 'rollforward':
-#             #print(section_name)
-#             if section_name == 'ALL': # parse dictionary based on the values passsed
-#                 for section in dict_parsed:
-#                     for key in dict_parsed[section]:
-#                         val.append(dict_parsed[section][key])
-#             else:
-#                 if query_id == 'ALL' or query_id == 'all':
-#                     for v in dict_parsed[section_name].values():
-#                         val.append(v)
-#                 else:
-#                     v = dict_parsed[section_name][query_id]
-#                     val.append(v)
-#         else:
-#            # Check on steps for rollback execution
-#             if query_id == 'None':
-#                 v = dict_parsed[section_name].values()
-#             else:
-#                 v = dict_parsed[section_name][query_id]
-#             val.append(v)
-#     except Exception as e:
-#         print(e)
-#     #val.append('abc')
-#     print(val)
-#     return val
-
 def validate_test_case(test_case_num,output,expected_output):
     try:
         assert output == expected_output
@@ -394,12 +349,15 @@ def create_cluster_and_execute_query(clusterconfigfile, clusterconfigparm,output
             print('No results - statement executed successfully')
         else:
             df2 = c1.convert_results_to_df(result)
-            df2_value = df2.iloc[:,0].values.tolist()
-            df2_value_list = [str(j) for j in df2_value]
-            print('expected_output',test_pointer_new_results[0][i])
-            print('output',df2_value_list[0])
-            print('test_case_num',str(i))
-            validate_test_case(output=df2_value_list[0],expected_output=test_pointer_new_results[0][i],test_case_num=str(i))
+            print('df2',df2)
+            if df2.empty != True:
+                df2_value = df2.iloc[:,0].values.tolist()
+                print(df2_value)
+                df2_value_list = [str(j) for j in df2_value]
+                print('expected_output',test_pointer_new_results[0][i])
+                print('output',df2_value_list[0])
+                print('test_case_num',str(i))
+                validate_test_case(output=df2_value_list[0],expected_output=test_pointer_new_results[0][i],test_case_num=str(i))
             if df2.empty != True:
                 if output == 'f':
                     dir = uuid.uuid4().hex.upper()[0:6]
@@ -414,7 +372,7 @@ def create_cluster_and_execute_query(clusterconfigfile, clusterconfigparm,output
                                      bucketname=s3_bucket,
                                      path_name=test_pointer_path_name)
     #delete cluster
-    y = c1.delete_cluster()
+    #y = c1.delete_cluster() # !caution enabling this will delete your cluster
 
 def main() -> None:
     args = sys.argv[1:]
@@ -426,8 +384,7 @@ def main() -> None:
     else:
         validate(args)
         create_cluster_and_execute_query(clusterconfigfile=sys.argv[6], clusterconfigparm=sys.argv[7],output=None)
-        #data_export_to_s3(configfile='dw_config.ini', configparm='DWH',s3_bucket_name=None)
-        # adding random characters for testing
 if __name__ == "__main__":
     main()
-    #testing
+    #s3_bucket = get_secret(secret_name="redshiftdevops_s3_bucketname", region_name="us-east-1")
+    #print(s3_bucket)
