@@ -36,7 +36,7 @@ hub (The image is first updated in docker hub to ensure consistency).
 Jenkins pulls the docker hub image and deploys it as a container.
 Finally, Jenkins executes DDL/DML within the container.
 
-![](images/media/image1.png){width="6.263888888888889in"
+![](images/media/img1.png){width="6.263888888888889in"
 height="3.4902777777777776in"}
 
 # Running the Redshift pipeline 
