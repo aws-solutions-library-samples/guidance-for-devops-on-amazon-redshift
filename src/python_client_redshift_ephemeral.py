@@ -372,7 +372,7 @@ def create_cluster_and_execute_query(clusterconfigfile, clusterconfigparm,output
                                      bucketname=s3_bucket,
                                      path_name=test_pointer_path_name)
     #delete cluster
-    #y = c1.delete_cluster() # !caution enabling this will delete your cluster
+    y = c1.delete_cluster() # !caution enabling this will delete your cluster
 
 def main() -> None:
     args = sys.argv[1:]
