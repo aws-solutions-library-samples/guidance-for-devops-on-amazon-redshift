@@ -74,8 +74,7 @@ file\" and then \"Choose file.\" The file should be in
 \<cloned_directory\>/cloudformation_Redshift_devops.yml. After you
 select the file, your screen should look like the following:
 
-![](images/media/image2.png){width="6.263888888888889in"
-height="3.4902777777777776in"}
+![](images/media/image2.png)
 
 Click \"Next\" and complete the following parameters:
 
