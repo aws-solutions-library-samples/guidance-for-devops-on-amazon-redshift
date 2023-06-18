@@ -77,7 +77,7 @@ class RedshiftEphemeral:
             response = obj.delete_cluster(
                 ClusterIdentifier=self.name,
                 SkipFinalClusterSnapshot=True,
-                FinalClusterSnapshotIdentifier='ra3_dev_snapshot_donot_delete',
+                #FinalClusterSnapshotIdentifier='ra3_dev_snapshot_donot_delete',
                 FinalClusterSnapshotRetentionPeriod=15
             )
         except Exception as e:
