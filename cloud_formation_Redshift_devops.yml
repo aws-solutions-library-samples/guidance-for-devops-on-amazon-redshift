@@ -1,4 +1,5 @@
 AWSTemplateFormatVersion: 2010-09-09
+Description: This template (SO9188) deploys the AWS CloudFormation for running the Redshift pipeline
 Conditions:
   SingleNode: !Equals [ !Ref RedshiftNodeCount, 1 ]
 Parameters:
