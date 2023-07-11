@@ -1,9 +1,5 @@
 AWSTemplateFormatVersion: 2010-09-09
-<<<<<<< HEAD
 Description: This template (SO9188) deploys the AWS CloudFormation for running the Redshift pipeline
-=======
-Description: This template deploys the Guidance for DevOps on Amazon Redshift (SO9188)
->>>>>>> d77fbb8cfe2f2ec9f27a0e4b7bc78df7a94cd8f7
 Conditions:
   SingleNode: !Equals [ !Ref RedshiftNodeCount, 1 ]
 Parameters:
